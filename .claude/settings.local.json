@@ -6,7 +6,12 @@
       "Bash(npm install axios)",
       "Bash(psql --version)",
       "Bash(npm uninstall:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\omers\\\\Desktop\\\\Ders\\\\Bitirme Projesi\\\\Movalyze\" -Recurse -Force)",
+      "Bash(Select-Object FullName)",
+      "Bash(Sort-Object FullName)",
+      "Bash(Out-String -Width 300)",
+      "Bash(npx tsc *)"
     ]
   }
 }

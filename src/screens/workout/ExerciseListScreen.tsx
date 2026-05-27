@@ -89,7 +89,13 @@ export default function ExerciseListScreen({ navigation, route }: Props) {
               <TouchableOpacity
                 key={ex.id}
                 style={styles.exerciseCard}
-                onPress={() => console.log('Exercise selected:', ex.name, ex.id)}
+                onPress={() =>
+                  navigation.navigate('ExerciseCamera', {
+                    exerciseId: ex.id,
+                    exerciseName: ex.name,
+                    categoryColor,
+                  })
+                }
                 activeOpacity={0.8}>
                 <View style={[styles.exerciseImgPlaceholder, { borderColor: categoryColor }]} />
                 <View style={styles.exerciseInfo}>
