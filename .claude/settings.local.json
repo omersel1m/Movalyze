@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install @react-navigation/native @react-navigation/bottom-tabs react-native-screens)",
+      "Bash(npm install react-native-gesture-handler)",
+      "Bash(npm install axios)",
+      "Bash(psql --version)",
+      "Bash(npm uninstall:*)",
+      "Bash(npm install:*)"
+    ]
+  }
+}
