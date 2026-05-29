@@ -6,7 +6,7 @@ import {
   TouchableOpacity,
   StatusBar,
 } from 'react-native';
-import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
+import { Camera, useCameraDevice, useCameraPermission, CameraPosition } from 'react-native-vision-camera';
 import { Camera as CameraIcon } from 'lucide-react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
@@ -23,9 +23,10 @@ type Props = {
 export default function ExerciseCameraScreen({ navigation, route }: Props) {
   const { exerciseName, categoryColor } = route.params;
   const [isTracking, setIsTracking] = useState(false);
+  const [cameraPosition, setCameraPosition] = useState<CameraPosition>('front');
 
   const { hasPermission, requestPermission } = useCameraPermission();
-  const device = useCameraDevice('back');
+  const device = useCameraDevice(cameraPosition);
   const insets = useSafeAreaInsets();
   const { frameProcessor } = usePoseDetection();
 
@@ -87,6 +88,7 @@ export default function ExerciseCameraScreen({ navigation, route }: Props) {
         <CameraControls
           isTracking={isTracking}
           onToggle={() => setIsTracking(prev => !prev)}
+          onFlip={() => setCameraPosition(p => p === 'front' ? 'back' : 'front')}
         />
       </View>
     </View>
