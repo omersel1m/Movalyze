@@ -13,6 +13,7 @@ import { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WorkoutStackParamList } from '../../../navigation/WorkoutNavigator';
 import CameraControls from '../components/CameraControls';
+import { usePoseDetection } from '../hooks/usePoseDetection';
 
 type Props = {
   navigation: NativeStackNavigationProp<WorkoutStackParamList, 'ExerciseCamera'>;
@@ -26,6 +27,7 @@ export default function ExerciseCameraScreen({ navigation, route }: Props) {
   const { hasPermission, requestPermission } = useCameraPermission();
   const device = useCameraDevice('back');
   const insets = useSafeAreaInsets();
+  const { frameProcessor } = usePoseDetection();
 
   if (!hasPermission) {
     return (
@@ -56,6 +58,7 @@ export default function ExerciseCameraScreen({ navigation, route }: Props) {
         style={StyleSheet.absoluteFill}
         device={device}
         isActive={true}
+        frameProcessor={frameProcessor}
       />
 
       {/* Top overlay */}
