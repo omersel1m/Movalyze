@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WorkoutStackParamList } from '../../../navigation/WorkoutNavigator';
 import CameraControls from '../components/CameraControls';
 import { usePoseDetection } from '../hooks/usePoseDetection';
+import { useBicepsCurlAnalyzer } from '../hooks/useBicepsCurlAnalyzer';
 
 type Props = {
   navigation: NativeStackNavigationProp<WorkoutStackParamList, 'ExerciseCamera'>;
@@ -28,7 +29,8 @@ export default function ExerciseCameraScreen({ navigation, route }: Props) {
   const { hasPermission, requestPermission } = useCameraPermission();
   const device = useCameraDevice(cameraPosition);
   const insets = useSafeAreaInsets();
-  const { frameProcessor } = usePoseDetection();
+  const { frameProcessor, poseResult } = usePoseDetection();
+  const { analysisResult } = useBicepsCurlAnalyzer(poseResult);
 
   if (!hasPermission) {
     return (
@@ -85,6 +87,26 @@ export default function ExerciseCameraScreen({ navigation, route }: Props) {
 
       {/* Bottom overlay */}
       <View style={[styles.bottomOverlay, { paddingBottom: insets.bottom + 20 }]}>
+        {analysisResult && (
+          <View style={styles.angleRow}>
+            <View style={styles.angleChip}>
+              <Text style={styles.angleChipLabel}>Sol Dirsek</Text>
+              <Text style={styles.angleChipValue}>
+                {analysisResult.angles.leftElbow !== null
+                  ? `${analysisResult.angles.leftElbow}°`
+                  : '—'}
+              </Text>
+            </View>
+            <View style={styles.angleChip}>
+              <Text style={styles.angleChipLabel}>Sağ Dirsek</Text>
+              <Text style={styles.angleChipValue}>
+                {analysisResult.angles.rightElbow !== null
+                  ? `${analysisResult.angles.rightElbow}°`
+                  : '—'}
+              </Text>
+            </View>
+          </View>
+        )}
         <CameraControls
           isTracking={isTracking}
           onToggle={() => setIsTracking(prev => !prev)}
@@ -190,6 +212,35 @@ const styles = StyleSheet.create({
   },
   badgeSpacer: {
     width: 56,
+  },
+
+  // Angle display
+  angleRow: {
+    flexDirection: 'row',
+    gap: 24,
+    marginBottom: 16,
+  },
+  angleChip: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    minWidth: 110,
+  },
+  angleChipLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.7)',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  angleChipValue: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
   },
 
   // Bottom overlay
