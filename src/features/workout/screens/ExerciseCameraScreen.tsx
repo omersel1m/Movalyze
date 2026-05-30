@@ -13,7 +13,6 @@ import { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WorkoutStackParamList } from '../../../navigation/WorkoutNavigator';
 import CameraControls from '../components/CameraControls';
-import { usePoseDetection } from '../hooks/usePoseDetection';
 import { useBicepsCurlAnalyzer } from '../hooks/useBicepsCurlAnalyzer';
 
 type Props = {
@@ -29,8 +28,7 @@ export default function ExerciseCameraScreen({ navigation, route }: Props) {
   const { hasPermission, requestPermission } = useCameraPermission();
   const device = useCameraDevice(cameraPosition);
   const insets = useSafeAreaInsets();
-  const { frameProcessor, poseResult } = usePoseDetection();
-  const { analysisResult } = useBicepsCurlAnalyzer(poseResult);
+  const { frameProcessor, leftAngle, rightAngle } = useBicepsCurlAnalyzer();
 
   if (!hasPermission) {
     return (
@@ -87,26 +85,20 @@ export default function ExerciseCameraScreen({ navigation, route }: Props) {
 
       {/* Bottom overlay */}
       <View style={[styles.bottomOverlay, { paddingBottom: insets.bottom + 20 }]}>
-        {analysisResult && (
-          <View style={styles.angleRow}>
-            <View style={styles.angleChip}>
-              <Text style={styles.angleChipLabel}>Sol Dirsek</Text>
-              <Text style={styles.angleChipValue}>
-                {analysisResult.angles.leftElbow !== null
-                  ? `${analysisResult.angles.leftElbow}°`
-                  : '—'}
-              </Text>
-            </View>
-            <View style={styles.angleChip}>
-              <Text style={styles.angleChipLabel}>Sağ Dirsek</Text>
-              <Text style={styles.angleChipValue}>
-                {analysisResult.angles.rightElbow !== null
-                  ? `${analysisResult.angles.rightElbow}°`
-                  : '—'}
-              </Text>
-            </View>
+        <View style={styles.angleRow}>
+          <View style={styles.angleChip}>
+            <Text style={styles.angleChipLabel}>Sol Dirsek</Text>
+            <Text style={styles.angleChipValue}>
+              {leftAngle !== null ? `${Math.round(leftAngle)}°` : '—'}
+            </Text>
           </View>
-        )}
+          <View style={styles.angleChip}>
+            <Text style={styles.angleChipLabel}>Sağ Dirsek</Text>
+            <Text style={styles.angleChipValue}>
+              {rightAngle !== null ? `${Math.round(rightAngle)}°` : '—'}
+            </Text>
+          </View>
+        </View>
         <CameraControls
           isTracking={isTracking}
           onToggle={() => setIsTracking(prev => !prev)}
@@ -241,6 +233,13 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#FFFFFF',
     letterSpacing: 0.5,
+    textAlign: 'center',
+    padding: 0,
+    margin: 0,
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    height: 32,
+    minWidth: 72,
   },
 
   // Bottom overlay

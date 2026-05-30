@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { PoseResult } from '../types/pose.types';
-import { AnalysisResult } from '../types/analysis.types';
+import { DeviceEventEmitter } from 'react-native';
+import { VisionCameraProxy, useFrameProcessor } from 'react-native-vision-camera';
+import { PoseLandmarks, toPoseResult, PoseResult } from '../types/pose.types';
 import { smoothPose } from '../logic/pose/poseSmoothing';
 import {
   analyzeBicepsCurl,
@@ -9,27 +10,50 @@ import {
 } from '../logic/analyzers/bicepsCurlAnalyzer';
 import { BICEPS_CURL_CONFIG } from '../logic/config/bicepsCurl.config';
 
-export function useBicepsCurlAnalyzer(poseResult: PoseResult | null) {
-  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+const plugin = VisionCameraProxy.initFrameProcessorPlugin('detectPose', {});
+const POSE_EVENT = 'PoseLandmarks';
+
+export function useBicepsCurlAnalyzer() {
+  const [leftAngle, setLeftAngle]   = useState<number | null>(null);
+  const [rightAngle, setRightAngle] = useState<number | null>(null);
 
   const smoothedPoseRef  = useRef<PoseResult | null>(null);
   const analyzerStateRef = useRef<BicepsCurlState>(INITIAL_BICEPS_CURL_STATE);
 
   useEffect(() => {
-    if (!poseResult) return;
+    const sub = DeviceEventEmitter.addListener(POSE_EVENT, (data: any) => {
+      if (!Array.isArray(data) || data.length === 0) return;
 
-    const smoothed = smoothPose(poseResult, smoothedPoseRef.current, BICEPS_CURL_CONFIG.SMOOTHING_ALPHA);
-    smoothedPoseRef.current = smoothed;
+      const rawPose = toPoseResult(data as PoseLandmarks);
+      const smoothed = smoothPose(rawPose, smoothedPoseRef.current, BICEPS_CURL_CONFIG.SMOOTHING_ALPHA);
+      smoothedPoseRef.current = smoothed;
 
-    const { result, nextState } = analyzeBicepsCurl(
-      smoothed,
-      analyzerStateRef.current,
-      BICEPS_CURL_CONFIG,
-    );
-    analyzerStateRef.current = nextState;
+      const { result, nextState } = analyzeBicepsCurl(
+        smoothed,
+        analyzerStateRef.current,
+        BICEPS_CURL_CONFIG,
+      );
+      analyzerStateRef.current = nextState;
 
-    setAnalysisResult(result);
-  }, [poseResult]);
+      const left  = result.angles.leftElbow;
+      const right = result.angles.rightElbow;
+      console.log('[BicepsCurl] left:', left, 'right:', right);
 
-  return { analysisResult };
+      setLeftAngle(left);
+      setRightAngle(right);
+    });
+
+    return () => sub.remove();
+  }, []);
+
+  const frameProcessor = useFrameProcessor(
+    frame => {
+      'worklet';
+      if (plugin == null) return;
+      plugin.call(frame);
+    },
+    [],
+  );
+
+  return { frameProcessor, leftAngle, rightAngle };
 }
