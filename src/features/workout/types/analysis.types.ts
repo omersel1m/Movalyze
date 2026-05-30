@@ -5,6 +5,8 @@ export type ExercisePhase =
   | 'tracking'
   | 'completed';
 
+export type ArmPhase = 'down' | 'up';
+
 export interface AnalysisResult {
   exerciseId: string;
   repCount: number;

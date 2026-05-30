@@ -28,7 +28,19 @@ export default function ExerciseCameraScreen({ navigation, route }: Props) {
   const { hasPermission, requestPermission } = useCameraPermission();
   const device = useCameraDevice(cameraPosition);
   const insets = useSafeAreaInsets();
-  const { frameProcessor, leftAngle, rightAngle } = useBicepsCurlAnalyzer();
+  const { frameProcessor, result } = useBicepsCurlAnalyzer();
+
+  // Derived display values — safe defaults before first pose arrives
+  const leftAngle   = result?.angles.leftElbow  ?? null;
+  const rightAngle  = result?.angles.rightElbow ?? null;
+  const leftCount   = result?.leftRepCount  ?? 0;
+  const rightCount  = result?.rightRepCount ?? 0;
+  const displayMode = result?.displayMode  ?? 'bilateral';
+  const leftPhase   = result?.leftPhase  ?? 'down';
+  const rightPhase  = result?.rightPhase ?? 'down';
+
+  // Any visible arm in "up" phase → YUKARI (mirrors Python logic)
+  const anyUp = leftPhase === 'up' || rightPhase === 'up';
 
   if (!hasPermission) {
     return (
@@ -85,6 +97,37 @@ export default function ExerciseCameraScreen({ navigation, route }: Props) {
 
       {/* Bottom overlay */}
       <View style={[styles.bottomOverlay, { paddingBottom: insets.bottom + 20 }]}>
+
+        {/* Rep count + Phase row */}
+        <View style={styles.statsRow}>
+          {/* Rep count */}
+          <View style={styles.repChip}>
+            <Text style={styles.repChipLabel}>TEKRAR</Text>
+            {displayMode === 'alternating' ? (
+              <Text style={styles.repChipValue}>
+                {leftCount}
+                <Text style={styles.repChipDivider}> | </Text>
+                {rightCount}
+              </Text>
+            ) : (
+              <Text style={styles.repChipValue}>
+                {Math.max(leftCount, rightCount)}
+              </Text>
+            )}
+            {displayMode === 'alternating' && (
+              <Text style={styles.repChipSub}>SOL | SAĞ</Text>
+            )}
+          </View>
+
+          {/* Phase indicator */}
+          <View style={[styles.phasePill, anyUp ? styles.phasePillUp : styles.phasePillDown]}>
+            <Text style={styles.phasePillText}>
+              {anyUp ? '▲  YUKARI' : '▼  AŞAĞI'}
+            </Text>
+          </View>
+        </View>
+
+        {/* Elbow angle chips */}
         <View style={styles.angleRow}>
           <View style={styles.angleChip}>
             <Text style={styles.angleChipLabel}>Sol Dirsek</Text>
@@ -99,6 +142,7 @@ export default function ExerciseCameraScreen({ navigation, route }: Props) {
             </Text>
           </View>
         </View>
+
         <CameraControls
           isTracking={isTracking}
           onToggle={() => setIsTracking(prev => !prev)}
@@ -206,6 +250,65 @@ const styles = StyleSheet.create({
     width: 56,
   },
 
+  // Stats row (rep count + phase)
+  statsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    marginBottom: 12,
+  },
+  repChip: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    borderRadius: 14,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    minWidth: 100,
+  },
+  repChipLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.6)',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  repChipValue: {
+    fontSize: 36,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    lineHeight: 40,
+  },
+  repChipDivider: {
+    fontSize: 24,
+    fontWeight: '400',
+    color: 'rgba(255,255,255,0.4)',
+  },
+  repChipSub: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.45)',
+    letterSpacing: 1.5,
+    marginTop: 1,
+  },
+  phasePill: {
+    borderRadius: 20,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+  },
+  phasePillUp: {
+    backgroundColor: 'rgba(34, 197, 94, 0.85)',
+  },
+  phasePillDown: {
+    backgroundColor: 'rgba(249, 115, 22, 0.85)',
+  },
+  phasePillText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+
   // Angle display
   angleRow: {
     flexDirection: 'row',
@@ -234,11 +337,8 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     letterSpacing: 0.5,
     textAlign: 'center',
-    padding: 0,
-    margin: 0,
-    backgroundColor: 'transparent',
-    borderWidth: 0,
     height: 32,
+    lineHeight: 32,
     minWidth: 72,
   },
 
@@ -248,7 +348,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    paddingTop: 24,
+    paddingTop: 20,
     alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.42)',
   },

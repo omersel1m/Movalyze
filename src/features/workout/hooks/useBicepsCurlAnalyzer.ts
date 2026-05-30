@@ -6,6 +6,7 @@ import { smoothPose } from '../logic/pose/poseSmoothing';
 import {
   analyzeBicepsCurl,
   BicepsCurlState,
+  BicepsCurlAnalysisResult,
   INITIAL_BICEPS_CURL_STATE,
 } from '../logic/analyzers/bicepsCurlAnalyzer';
 import { BICEPS_CURL_CONFIG } from '../logic/config/bicepsCurl.config';
@@ -14,8 +15,7 @@ const plugin = VisionCameraProxy.initFrameProcessorPlugin('detectPose', {});
 const POSE_EVENT = 'PoseLandmarks';
 
 export function useBicepsCurlAnalyzer() {
-  const [leftAngle, setLeftAngle]   = useState<number | null>(null);
-  const [rightAngle, setRightAngle] = useState<number | null>(null);
+  const [result, setResult] = useState<BicepsCurlAnalysisResult | null>(null);
 
   const smoothedPoseRef  = useRef<PoseResult | null>(null);
   const analyzerStateRef = useRef<BicepsCurlState>(INITIAL_BICEPS_CURL_STATE);
@@ -24,23 +24,28 @@ export function useBicepsCurlAnalyzer() {
     const sub = DeviceEventEmitter.addListener(POSE_EVENT, (data: any) => {
       if (!Array.isArray(data) || data.length === 0) return;
 
-      const rawPose = toPoseResult(data as PoseLandmarks);
+      const rawPose  = toPoseResult(data as PoseLandmarks);
       const smoothed = smoothPose(rawPose, smoothedPoseRef.current, BICEPS_CURL_CONFIG.SMOOTHING_ALPHA);
       smoothedPoseRef.current = smoothed;
 
-      const { result, nextState } = analyzeBicepsCurl(
+      const { result: analysisResult, nextState } = analyzeBicepsCurl(
         smoothed,
         analyzerStateRef.current,
         BICEPS_CURL_CONFIG,
       );
       analyzerStateRef.current = nextState;
 
-      const left  = result.angles.leftElbow;
-      const right = result.angles.rightElbow;
-      console.log('[BicepsCurl] left:', left, 'right:', right);
+      console.log(
+        '[BicepsCurl]',
+        'L:', analysisResult.angles.leftElbow?.toFixed(1),
+        'R:', analysisResult.angles.rightElbow?.toFixed(1),
+        '| lRep:', analysisResult.leftRepCount,
+        'rRep:', analysisResult.rightRepCount,
+        '| lPhase:', analysisResult.leftPhase,
+        'rPhase:', analysisResult.rightPhase,
+      );
 
-      setLeftAngle(left);
-      setRightAngle(right);
+      setResult(analysisResult);
     });
 
     return () => sub.remove();
@@ -55,5 +60,5 @@ export function useBicepsCurlAnalyzer() {
     [],
   );
 
-  return { frameProcessor, leftAngle, rightAngle };
+  return { frameProcessor, result };
 }
