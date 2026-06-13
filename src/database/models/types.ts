@@ -91,6 +91,73 @@ export interface DailyStats {
 }
 
 // ================================================================
+// Nutrition Tables (RLS aktif)
+// ================================================================
+
+export interface FoodRow {
+  id: string;
+  name: string;
+  brand: string | null;
+  serving_size: number;
+  serving_unit: 'g' | 'ml' | 'piece';
+  calories: number;
+  carbs_g: number;
+  protein_g: number;
+  fat_g: number;
+  fiber_g: number | null;
+  sugar_g: number | null;
+  sodium_mg: number | null;
+  created_by: string | null;
+  is_user_created: boolean;
+  created_at: string;
+}
+
+export interface NutritionEntryRow {
+  id: string;
+  user_id: string;
+  food_id: string | null;
+  entry_date: string;
+  meal_type: 'breakfast' | 'lunch' | 'dinner' | 'snack';
+  amount: number;
+  unit: string;
+  calories: number;
+  carbs_g: number;
+  protein_g: number;
+  fat_g: number;
+  is_quick_add: boolean;
+  quick_add_label: string | null;
+  created_at: string;
+  synced?: boolean;
+  food_name?: string | null; // populated by JOIN in getEntriesForDate
+}
+
+export interface WaterEntryRow {
+  id: string;
+  user_id: string;
+  entry_date: string;
+  amount_ml: number;
+  created_at: string;
+  synced?: boolean;
+}
+
+export interface NutritionGoalsRow {
+  user_id: string;
+  daily_calories: number;
+  carbs_g: number;
+  protein_g: number;
+  fat_g: number;
+  water_ml: number;
+  updated_at: string;
+  synced?: boolean;
+}
+
+export interface FavoriteFoodRow {
+  user_id: string;
+  food_id: string;
+  created_at: string;
+}
+
+// ================================================================
 // Local-only (SQLite)
 // ================================================================
 

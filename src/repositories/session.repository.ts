@@ -4,7 +4,7 @@ import { WorkoutSession, SessionError } from '../database/models/types';
 export const sessionRepository = {
   save(session: WorkoutSession): void {
     const db = getDatabase();
-    db.execute(
+    db.executeSync(
       `INSERT OR REPLACE INTO workout_sessions
         (id, user_id, started_at, ended_at, duration_seconds, exercise_type, synced)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -22,7 +22,7 @@ export const sessionRepository = {
 
   saveError(error: SessionError): void {
     const db = getDatabase();
-    db.execute(
+    db.executeSync(
       `INSERT OR REPLACE INTO session_errors
         (id, session_id, timestamp, error_type, description, synced)
        VALUES (?, ?, ?, ?, ?, ?)`,
@@ -39,23 +39,23 @@ export const sessionRepository = {
 
   getUnsynced(): WorkoutSession[] {
     const db = getDatabase();
-    const result = db.execute('SELECT * FROM workout_sessions WHERE synced = 0');
-    return (result.rows?._array ?? []) as WorkoutSession[];
+    const result = db.executeSync('SELECT * FROM workout_sessions WHERE synced = 0');
+    return (Array.isArray(result.rows) ? result.rows : result.rows?._array ?? []) as WorkoutSession[];
   },
 
   markSynced(id: string): void {
     const db = getDatabase();
-    db.execute('UPDATE workout_sessions SET synced = 1 WHERE id = ?', [id]);
+    db.executeSync('UPDATE workout_sessions SET synced = 1 WHERE id = ?', [id]);
   },
 
   getUnsyncedErrors(): SessionError[] {
     const db = getDatabase();
-    const result = db.execute('SELECT * FROM session_errors WHERE synced = 0');
-    return (result.rows?._array ?? []) as SessionError[];
+    const result = db.executeSync('SELECT * FROM session_errors WHERE synced = 0');
+    return (Array.isArray(result.rows) ? result.rows : result.rows?._array ?? []) as SessionError[];
   },
 
   markErrorSynced(id: string): void {
     const db = getDatabase();
-    db.execute('UPDATE session_errors SET synced = 1 WHERE id = ?', [id]);
+    db.executeSync('UPDATE session_errors SET synced = 1 WHERE id = ?', [id]);
   },
 };

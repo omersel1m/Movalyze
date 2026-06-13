@@ -1,11 +1,13 @@
 import { supabase } from '../config/supabaseClient';
 import { sessionRepository } from '../repositories/session.repository';
+import { nutritionService } from '../services/nutrition.service';
 
 export const syncQueue = {
   async syncAll(): Promise<void> {
     await Promise.all([
       syncQueue.syncSessions(),
       syncQueue.syncErrors(),
+      syncQueue.syncNutrition(),
     ]);
   },
 
@@ -35,5 +37,13 @@ export const syncQueue = {
         sessionRepository.markErrorSynced(err.id);
       }
     }
+  },
+
+  async syncNutrition(): Promise<void> {
+    await Promise.all([
+      nutritionService.syncNutritionEntries(),
+      nutritionService.syncWaterEntries(),
+      nutritionService.syncGoals(),
+    ]);
   },
 };
