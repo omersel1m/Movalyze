@@ -14,6 +14,7 @@ export type WorkoutStackParamList = {
   ExerciseCamera: {
     exerciseId: string;
     exerciseName: string;
+    exerciseSlug: string;
     categoryColor: string;
   };
 };

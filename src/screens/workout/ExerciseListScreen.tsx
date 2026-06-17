@@ -93,6 +93,7 @@ export default function ExerciseListScreen({ navigation, route }: Props) {
                   navigation.navigate('ExerciseCamera', {
                     exerciseId: ex.id,
                     exerciseName: ex.name,
+                    exerciseSlug: ex.slug,
                     categoryColor,
                   })
                 }

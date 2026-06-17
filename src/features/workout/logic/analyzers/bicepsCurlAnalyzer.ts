@@ -8,6 +8,11 @@ import {
   calculateUpperArmAngle,
   calculateTorsoLean,
 } from '../math/angleUtils';
+import {
+  WARNING_TO_ERROR_CODE,
+  ERROR_CODE_LABELS,
+  BicepsErrorCode,
+} from '../constants/bicepsErrorCodes';
 
 const WINDOW_SEC  = 1.0;
 const MAX_REP_LOG = 6;
@@ -422,4 +427,75 @@ export function analyzeBicepsCurl(
   };
 
   return { result, nextState: { left: nextLeft, right: nextRight }, nextRepLog };
+}
+
+// ── Session summary (consumed by the generic workout save layer) ──────────────
+// Aggregates a full (uncapped) session rep log into the metrics needed for a
+// WorkoutSession record + session_errors. Pure: no algorithm change.
+
+const PERFECT_FORM = 'Mükemmel form!';
+
+export interface BicepsErrorBucket {
+  errorCode: BicepsErrorCode;
+  count: number;
+}
+
+export interface BicepsSessionSummary {
+  totalReps: number;
+  leftReps: number;
+  rightReps: number;
+  correctReps: number;
+  avgFormScore: number | null;
+  bestFormScore: number | null;
+  worstFormScore: number | null;
+  repLog: RepLogEntry[];
+  errors: BicepsErrorBucket[];
+  topWarnings: Array<{ label: string; count: number }>;
+}
+
+function isPerfect(warnings: string[]): boolean {
+  return warnings.length === 0 || (warnings.length === 1 && warnings[0] === PERFECT_FORM);
+}
+
+export function summarizeBicepsSession(fullRepLog: RepLogEntry[]): BicepsSessionSummary {
+  const totalReps = fullRepLog.length;
+  const leftReps  = fullRepLog.filter(r => r.arm === 'left').length;
+  const rightReps = fullRepLog.filter(r => r.arm === 'right').length;
+  const correctReps = fullRepLog.filter(r => isPerfect(r.warnings)).length;
+
+  const scores = fullRepLog.map(r => r.score);
+  const avgFormScore =
+    scores.length > 0
+      ? Math.round((scores.reduce((s, v) => s + v, 0) / scores.length) * 10) / 10
+      : null;
+  const bestFormScore  = scores.length > 0 ? Math.max(...scores) : null;
+  const worstFormScore = scores.length > 0 ? Math.min(...scores) : null;
+
+  const errorCounts = new Map<BicepsErrorCode, number>();
+  const labelCounts = new Map<string, number>();
+  for (const rep of fullRepLog) {
+    for (const w of rep.warnings) {
+      if (w === PERFECT_FORM) continue;
+      const code = WARNING_TO_ERROR_CODE[w];
+      if (!code) continue;
+      errorCounts.set(code, (errorCounts.get(code) ?? 0) + 1);
+      const label = ERROR_CODE_LABELS[code];
+      labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
+    }
+  }
+
+  const errors: BicepsErrorBucket[] = [...errorCounts.entries()]
+    .map(([errorCode, count]) => ({ errorCode, count }))
+    .sort((a, b) => b.count - a.count);
+
+  const topWarnings = [...labelCounts.entries()]
+    .map(([label, count]) => ({ label, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 3);
+
+  return {
+    totalReps, leftReps, rightReps, correctReps,
+    avgFormScore, bestFormScore, worstFormScore,
+    repLog: fullRepLog, errors, topWarnings,
+  };
 }

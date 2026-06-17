@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   StatusBar,
+  Modal,
+  ActivityIndicator,
 } from 'react-native';
 import { Camera, useCameraDevice, useCameraPermission, CameraPosition } from 'react-native-vision-camera';
 import { Camera as CameraIcon } from 'lucide-react-native';
@@ -14,6 +16,28 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WorkoutStackParamList } from '../../../navigation/WorkoutNavigator';
 import CameraControls from '../components/CameraControls';
 import { useBicepsCurlAnalyzer } from '../hooks/useBicepsCurlAnalyzer';
+import { BicepsSessionSummary } from '../logic/analyzers/bicepsCurlAnalyzer';
+import { workoutSessionService } from '../../../services/workoutSession.service';
+import { authService } from '../../../services/auth.service';
+
+// Exercises whose ExerciseCamera screen has a real analyzer wired up. Other
+// exercises share the screen but show a "coming soon" hint and save nothing.
+// Matched tolerantly (slug OR name) because the DB slug may use underscores,
+// different casing, or differ from the local catalog.
+const BICEPS_CURL_KEY = 'biceps-curl';
+
+function normalizeKey(value: string): string {
+  return value.trim().toLowerCase().replace(/[\s_]+/g, '-');
+}
+
+function isBicepsCurl(slug: string, name: string): boolean {
+  const keys = [normalizeKey(slug), normalizeKey(name)];
+  // Exact match, or any reference to "biceps" (the only biceps exercise today).
+  return keys.some(k => k === BICEPS_CURL_KEY || k.includes('biceps'));
+}
+
+type SessionSummary = BicepsSessionSummary & { startedAt: Date; endedAt: Date };
+type SaveState = 'idle' | 'saving' | 'saved' | 'local' | 'error';
 
 type Props = {
   navigation: NativeStackNavigationProp<WorkoutStackParamList, 'ExerciseCamera'>;
@@ -33,8 +57,15 @@ function scoreColor(score: number): string {
   return '#EF4444';
 }
 
+function formatDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
 export default function ExerciseCameraScreen({ navigation, route }: Props) {
-  const { exerciseName, categoryColor } = route.params;
+  const { exerciseId, exerciseName, exerciseSlug, categoryColor } = route.params;
+  const isAnalyzable = isBicepsCurl(exerciseSlug, exerciseName);
   const [cameraPosition, setCameraPosition] = useState<CameraPosition>('front');
 
   const { hasPermission, requestPermission } = useCameraPermission();
@@ -48,9 +79,62 @@ export default function ExerciseCameraScreen({ navigation, route }: Props) {
     reference,
     startSession,
     stopSession,
+    buildSummary,
   } = useBicepsCurlAnalyzer();
 
+  const [summary, setSummary]       = useState<SessionSummary | null>(null);
+  const [showSummary, setShowSummary] = useState(false);
+  const [saveState, setSaveState]   = useState<SaveState>('idle');
+
   const isTracking = sessionPhase === 'tracking';
+
+  const finishWorkout = useCallback(async () => {
+    stopSession();
+    const s = buildSummary();
+    if (!s) return;
+
+    setSummary(s);
+    setShowSummary(true);
+    setSaveState('saving');
+
+    try {
+      const session = await authService.getSession();
+      const userId  = session?.user?.id;
+      if (!userId) {
+        console.warn('[finish] no authenticated user — skipping save');
+        setSaveState('error');
+        return;
+      }
+
+      const saveResult = await workoutSessionService.saveWorkoutSession({
+        userId,
+        exerciseId,
+        startedAt:      s.startedAt,
+        endedAt:        s.endedAt,
+        totalReps:      s.totalReps,
+        leftReps:       s.leftReps,
+        rightReps:      s.rightReps,
+        correctReps:    s.correctReps,
+        avgFormScore:   s.avgFormScore,
+        bestFormScore:  s.bestFormScore,
+        worstFormScore: s.worstFormScore,
+        repLog:         s.repLog,
+        errors:         s.errors.map(e => ({ errorCode: e.errorCode, count: e.count })),
+      });
+
+      setSaveState(
+        saveResult.savedLocally ? (saveResult.syncedRemote ? 'saved' : 'local') : 'error',
+      );
+    } catch (err) {
+      console.error('[finish] save failed:', err);
+      setSaveState('error');
+    }
+  }, [stopSession, buildSummary, exerciseId]);
+
+  const closeSummary = useCallback(() => {
+    setShowSummary(false);
+    navigation.goBack();
+  }, [navigation]);
 
   const leftAngle       = result?.angles.leftElbow    ?? null;
   const rightAngle      = result?.angles.rightElbow   ?? null;
@@ -67,10 +151,11 @@ export default function ExerciseCameraScreen({ navigation, route }: Props) {
   const showStats = sessionPhase === 'tracking' || sessionPhase === 'stopped';
 
   const handleToggle = () => {
+    if (!isAnalyzable) return; // no analyzer for this exercise yet
     if (sessionPhase === 'idle' || sessionPhase === 'stopped') {
       startSession();
     } else if (sessionPhase === 'tracking') {
-      stopSession();
+      finishWorkout();
     }
     // countdown → no-op
   };
@@ -112,6 +197,18 @@ export default function ExerciseCameraScreen({ navigation, route }: Props) {
         <View style={styles.countdownOverlay} pointerEvents="none">
           <Text style={styles.countdownNumber}>{countdownValue}</Text>
           <Text style={styles.countdownSub}>hazırlan</Text>
+        </View>
+      )}
+
+      {/* No analyzer yet for this exercise */}
+      {!isAnalyzable && (
+        <View style={styles.comingSoonOverlay} pointerEvents="none">
+          <View style={styles.comingSoonCard}>
+            <Text style={styles.comingSoonTitle}>Analiz Yakında</Text>
+            <Text style={styles.comingSoonText}>
+              Bu egzersiz için form analizi yakında eklenecek.
+            </Text>
+          </View>
         </View>
       )}
 
@@ -189,20 +286,22 @@ export default function ExerciseCameraScreen({ navigation, route }: Props) {
         )}
 
         {/* Elbow angle chips */}
-        <View style={styles.angleRow}>
-          <View style={styles.angleChip}>
-            <Text style={styles.angleChipLabel}>Sol Dirsek</Text>
-            <Text style={styles.angleChipValue}>
-              {leftAngle !== null ? `${Math.round(leftAngle)}°` : '—'}
-            </Text>
+        {isAnalyzable && (
+          <View style={styles.angleRow}>
+            <View style={styles.angleChip}>
+              <Text style={styles.angleChipLabel}>Sol Dirsek</Text>
+              <Text style={styles.angleChipValue}>
+                {leftAngle !== null ? `${Math.round(leftAngle)}°` : '—'}
+              </Text>
+            </View>
+            <View style={styles.angleChip}>
+              <Text style={styles.angleChipLabel}>Sağ Dirsek</Text>
+              <Text style={styles.angleChipValue}>
+                {rightAngle !== null ? `${Math.round(rightAngle)}°` : '—'}
+              </Text>
+            </View>
           </View>
-          <View style={styles.angleChip}>
-            <Text style={styles.angleChipLabel}>Sağ Dirsek</Text>
-            <Text style={styles.angleChipValue}>
-              {rightAngle !== null ? `${Math.round(rightAngle)}°` : '—'}
-            </Text>
-          </View>
-        </View>
+        )}
 
         {/* Last rep score + warnings */}
         {showStats && lastRepScore !== null && (
@@ -224,6 +323,121 @@ export default function ExerciseCameraScreen({ navigation, route }: Props) {
           onFlip={() => setCameraPosition(p => p === 'front' ? 'back' : 'front')}
         />
       </View>
+
+      {/* Workout summary */}
+      <WorkoutSummaryModal
+        visible={showSummary}
+        summary={summary}
+        exerciseName={exerciseName}
+        accent={categoryColor}
+        saveState={saveState}
+        onClose={closeSummary}
+      />
+    </View>
+  );
+}
+
+// ── Workout Summary Modal ─────────────────────────────────────────
+interface WorkoutSummaryModalProps {
+  visible: boolean;
+  summary: SessionSummary | null;
+  exerciseName: string;
+  accent: string;
+  saveState: SaveState;
+  onClose: () => void;
+}
+
+const SAVE_STATE_META: Record<SaveState, { label: string; color: string }> = {
+  idle:   { label: '',                                  color: '#8A8A8A' },
+  saving: { label: 'Kaydediliyor…',                     color: '#8A8A8A' },
+  saved:  { label: 'Kaydedildi',                        color: '#22C55E' },
+  local:  { label: 'Yerel kaydedildi · senkron bekliyor', color: '#F59E0B' },
+  error:  { label: 'Kayıt başarısız',                   color: '#EF4444' },
+};
+
+function WorkoutSummaryModal({
+  visible, summary, exerciseName, accent, saveState, onClose,
+}: WorkoutSummaryModalProps) {
+  const durationSec = summary
+    ? Math.max(0, Math.round((summary.endedAt.getTime() - summary.startedAt.getTime()) / 1000))
+    : 0;
+  const avg  = summary?.avgFormScore ?? null;
+  const best = summary?.bestFormScore ?? null;
+  const worst = summary?.worstFormScore ?? null;
+  const meta = SAVE_STATE_META[saveState];
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.summaryBackdrop}>
+        <View style={styles.summaryCard}>
+          <View style={[styles.summaryAccent, { backgroundColor: accent }]} />
+          <Text style={styles.summaryTitle}>Antrenman Özeti</Text>
+          <Text style={styles.summaryExercise}>{exerciseName}</Text>
+
+          {summary && (
+            <>
+              <View style={styles.summaryGrid}>
+                <SummaryStat label="Süre" value={formatDuration(durationSec)} />
+                <SummaryStat label="Tekrar" value={String(summary.totalReps)} />
+                <SummaryStat label="Doğru" value={String(summary.correctReps)} />
+              </View>
+
+              <View style={styles.summaryGrid}>
+                <SummaryStat label="Sol" value={String(summary.leftReps)} />
+                <SummaryStat label="Sağ" value={String(summary.rightReps)} />
+                <SummaryStat
+                  label="Ort. Form"
+                  value={avg !== null ? `${Math.round(avg)}%` : '—'}
+                  color={avg !== null ? scoreColor(avg) : undefined}
+                />
+              </View>
+
+              {best !== null && worst !== null && (
+                <View style={styles.summaryGrid}>
+                  <SummaryStat label="En İyi" value={`${Math.round(best)}%`} color={scoreColor(best)} />
+                  <SummaryStat label="En Düşük" value={`${Math.round(worst)}%`} color={scoreColor(worst)} />
+                  <View style={styles.summaryStat} />
+                </View>
+              )}
+
+              {summary.topWarnings.length > 0 && (
+                <View style={styles.summaryWarnings}>
+                  <Text style={styles.summaryWarnTitle}>En Sık Uyarılar</Text>
+                  {summary.topWarnings.map((w, i) => (
+                    <Text key={i} style={styles.summaryWarnRow}>
+                      {'• '}{w.label}
+                      <Text style={styles.summaryWarnCount}>  ×{w.count}</Text>
+                    </Text>
+                  ))}
+                </View>
+              )}
+            </>
+          )}
+
+          <View style={styles.summaryStatusRow}>
+            {saveState === 'saving' && <ActivityIndicator size="small" color={meta.color} />}
+            {meta.label.length > 0 && (
+              <Text style={[styles.summaryStatusText, { color: meta.color }]}>{meta.label}</Text>
+            )}
+          </View>
+
+          <TouchableOpacity
+            style={[styles.summaryBtn, { backgroundColor: accent }]}
+            onPress={onClose}
+            activeOpacity={0.85}>
+            <Text style={styles.summaryBtnText}>Kapat</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function SummaryStat({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <View style={styles.summaryStat}>
+      <Text style={styles.summaryStatLabel}>{label}</Text>
+      <Text style={[styles.summaryStatValue, color ? { color } : null]}>{value}</Text>
     </View>
   );
 }
@@ -512,6 +726,145 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.42)',
+  },
+
+  // Coming soon (no analyzer)
+  comingSoonOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  comingSoonCard: {
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 16,
+    paddingHorizontal: 28,
+    paddingVertical: 22,
+    marginHorizontal: 40,
+    alignItems: 'center',
+  },
+  comingSoonTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  comingSoonText: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.8)',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+
+  // Summary modal
+  summaryBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'flex-end',
+  },
+  summaryCard: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 32,
+  },
+  summaryAccent: {
+    alignSelf: 'center',
+    width: 44,
+    height: 5,
+    borderRadius: 3,
+    marginBottom: 16,
+  },
+  summaryTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#8A8A8A',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+  },
+  summaryExercise: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#1A1A2E',
+    textAlign: 'center',
+    marginTop: 2,
+    marginBottom: 20,
+  },
+  summaryGrid: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 12,
+  },
+  summaryStat: {
+    flex: 1,
+    backgroundColor: '#F5F6FA',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  summaryStatLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#8A8A8A',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  summaryStatValue: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#1A1A2E',
+  },
+  summaryWarnings: {
+    backgroundColor: '#FFF7ED',
+    borderRadius: 14,
+    padding: 14,
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  summaryWarnTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#B45309',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  summaryWarnRow: {
+    fontSize: 14,
+    color: '#7C2D12',
+    lineHeight: 22,
+  },
+  summaryWarnCount: {
+    fontWeight: '700',
+    color: '#B45309',
+  },
+  summaryStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 8,
+    marginBottom: 16,
+    minHeight: 20,
+  },
+  summaryStatusText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  summaryBtn: {
+    borderRadius: 16,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  summaryBtnText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
   },
 
   // Error

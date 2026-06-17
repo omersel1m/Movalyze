@@ -6,9 +6,11 @@ import { smoothPose } from '../logic/pose/poseSmoothing';
 import {
   analyzeBicepsCurl,
   captureReference,
+  summarizeBicepsSession,
   BicepsCurlState,
   BicepsCurlAnalysisResult,
   BicepsReference,
+  BicepsSessionSummary,
   RepLogEntry,
   INITIAL_BICEPS_CURL_STATE,
 } from '../logic/analyzers/bicepsCurlAnalyzer';
@@ -32,6 +34,14 @@ export function useBicepsCurlAnalyzer() {
   const sessionPhaseRef   = useRef<SessionPhase>('idle');
   const countdownStartRef = useRef<number>(0);
   const timerRef          = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Full (uncapped) session history for the workout summary. repLogRef above is
+  // capped to MAX_REP_LOG for the live UI; this keeps every completed rep so the
+  // saved session has accurate totals, form scores and error counts.
+  const fullRepLogRef     = useRef<RepLogEntry[]>([]);
+  const seenRepKeysRef    = useRef<Set<string>>(new Set());
+  const startedAtRef      = useRef<Date | null>(null);
+  const endedAtRef        = useRef<Date | null>(null);
 
   const clearTimer = () => {
     if (timerRef.current !== null) {
@@ -74,6 +84,10 @@ export function useBicepsCurlAnalyzer() {
 
       analyzerStateRef.current = INITIAL_BICEPS_CURL_STATE;
       repLogRef.current        = [];
+      fullRepLogRef.current    = [];
+      seenRepKeysRef.current   = new Set();
+      startedAtRef.current     = new Date();
+      endedAtRef.current       = null;
       referenceRef.current     = ref;
       setReference(ref);
       setCountdownValue(0);
@@ -86,9 +100,22 @@ export function useBicepsCurlAnalyzer() {
 
   const stopSession = useCallback(() => {
     clearTimer();
+    endedAtRef.current = new Date();
     sessionPhaseRef.current = 'stopped';
     setSessionPhase('stopped');
   }, []);
+
+  // Snapshot of the just-finished session for the generic save layer.
+  // Returns null if no session was ever started (no reference captured).
+  const buildSummary = useCallback(
+    (): (BicepsSessionSummary & { startedAt: Date; endedAt: Date }) | null => {
+      const startedAt = startedAtRef.current;
+      if (!startedAt) return null;
+      const endedAt = endedAtRef.current ?? new Date();
+      return { ...summarizeBicepsSession(fullRepLogRef.current), startedAt, endedAt };
+    },
+    [],
+  );
 
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener(POSE_EVENT, (data: any) => {
@@ -113,6 +140,17 @@ export function useBicepsCurlAnalyzer() {
 
       analyzerStateRef.current = nextState;
       repLogRef.current        = nextRepLog;
+
+      // Accumulate newly completed reps into the uncapped session log.
+      // (arm, repNo) is unique within a session, so it dedupes against the
+      // capped UI log that may have dropped older entries.
+      for (const entry of nextRepLog) {
+        const key = `${entry.arm}:${entry.repNo}`;
+        if (!seenRepKeysRef.current.has(key)) {
+          seenRepKeysRef.current.add(key);
+          fullRepLogRef.current.push(entry);
+        }
+      }
 
       console.log(
         '[BicepsCurl]',
@@ -141,5 +179,14 @@ export function useBicepsCurlAnalyzer() {
     [],
   );
 
-  return { frameProcessor, result, sessionPhase, countdownValue, reference, startSession, stopSession };
+  return {
+    frameProcessor,
+    result,
+    sessionPhase,
+    countdownValue,
+    reference,
+    startSession,
+    stopSession,
+    buildSummary,
+  };
 }
