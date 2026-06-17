@@ -34,6 +34,19 @@ export function calculateUpperArmVerticalAngle(
   );
 }
 
+// Angle between torso direction (shoulder→hip) and upper arm direction (shoulder→elbow)
+// mirrors get_upper_arm_angle() in biceps_mediapipe.py
+export function calculateUpperArmAngle(
+  shoulder: PoseLandmark,
+  elbow: PoseLandmark,
+  hip: PoseLandmark,
+): number {
+  return vecAngle(
+    { x: hip.x - shoulder.x, y: hip.y - shoulder.y },
+    { x: elbow.x - shoulder.x, y: elbow.y - shoulder.y },
+  );
+}
+
 // Angle between torso vector (shoulder→hip) and vertical axis
 export function calculateTorsoLean(shoulder: PoseLandmark, hip: PoseLandmark): number {
   return vecAngle(

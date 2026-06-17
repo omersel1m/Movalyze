@@ -6,15 +6,27 @@ export const sessionRepository = {
     const db = getDatabase();
     db.executeSync(
       `INSERT OR REPLACE INTO workout_sessions
-        (id, user_id, started_at, ended_at, duration_seconds, exercise_type, synced)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        (id, user_id, exercise_id, started_at, ended_at, duration_seconds,
+         total_reps, left_reps, right_reps, correct_reps,
+         avg_accuracy_pct, max_accuracy_pct, min_accuracy_pct,
+         rep_log, status, synced)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         session.id,
         session.user_id,
+        session.exercise_id,
         session.started_at,
-        session.ended_at,
+        session.ended_at ?? null,
         session.duration_seconds,
-        session.exercise_type,
+        session.total_reps,
+        session.left_reps,
+        session.right_reps,
+        session.correct_reps,
+        session.avg_accuracy_pct ?? null,
+        session.max_accuracy_pct ?? null,
+        session.min_accuracy_pct ?? null,
+        session.rep_log ?? null,
+        session.status,
         session.synced ? 1 : 0,
       ],
     );
@@ -24,14 +36,18 @@ export const sessionRepository = {
     const db = getDatabase();
     db.executeSync(
       `INSERT OR REPLACE INTO session_errors
-        (id, session_id, timestamp, error_type, description, synced)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+        (id, session_id, error_code, error_description, rep_number,
+         occurrence_count, severity_score, detected_at, synced)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         error.id,
         error.session_id,
-        error.timestamp,
-        error.error_type,
-        error.description,
+        error.error_code,
+        error.error_description ?? null,
+        error.rep_number ?? null,
+        error.occurrence_count,
+        error.severity_score ?? null,
+        error.detected_at,
         error.synced ? 1 : 0,
       ],
     );

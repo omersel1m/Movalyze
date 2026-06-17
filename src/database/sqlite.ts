@@ -51,6 +51,11 @@ function runMigrations(database: OPSQLiteConnection): void {
   database.executeSync(`CREATE INDEX IF NOT EXISTS idx_se_session_id ON session_errors (session_id);`);
   database.executeSync(`CREATE INDEX IF NOT EXISTS idx_se_synced      ON session_errors (synced);`);
 
+  // v2 column additions — safe to re-run (ALTER TABLE throws if column exists, catch silently)
+  try { database.executeSync(`ALTER TABLE workout_sessions ADD COLUMN left_reps  INTEGER NOT NULL DEFAULT 0`); } catch {}
+  try { database.executeSync(`ALTER TABLE workout_sessions ADD COLUMN right_reps INTEGER NOT NULL DEFAULT 0`); } catch {}
+  try { database.executeSync(`ALTER TABLE workout_sessions ADD COLUMN rep_log    TEXT`); } catch {}
+
   database.executeSync(`
     CREATE TABLE IF NOT EXISTS sync_queue (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,

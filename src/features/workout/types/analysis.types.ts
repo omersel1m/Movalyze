@@ -7,6 +7,8 @@ export type ExercisePhase =
 
 export type ArmPhase = 'down' | 'up';
 
+export type SessionPhase = 'idle' | 'countdown' | 'tracking' | 'stopped';
+
 export interface AnalysisResult {
   exerciseId: string;
   repCount: number;

@@ -45,11 +45,14 @@ export interface WorkoutSession {
   exercise_id: string;
   duration_seconds: number;
   total_reps: number;
+  left_reps: number;
+  right_reps: number;
   correct_reps: number;
   incorrect_reps?: number; // Supabase'de generated column
-  avg_accuracy_pct: number | null;
-  max_accuracy_pct: number | null;
-  min_accuracy_pct: number | null;
+  avg_accuracy_pct: number | null;   // = average_form_score
+  max_accuracy_pct: number | null;   // = best_form_score
+  min_accuracy_pct: number | null;   // = worst_form_score
+  rep_log: string | null;            // JSON string — RepLogEntry[]
   status: 'in_progress' | 'completed' | 'abandoned';
   started_at: string;
   ended_at: string | null;

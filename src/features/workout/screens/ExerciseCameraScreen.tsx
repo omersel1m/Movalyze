@@ -20,27 +20,60 @@ type Props = {
   route: RouteProp<WorkoutStackParamList, 'ExerciseCamera'>;
 };
 
+const SESSION_PHASE_LABELS: Record<string, string> = {
+  idle:      'HAZIR',
+  countdown: 'KALIBRE',
+  tracking:  'TAKİP',
+  stopped:   'DURDU',
+};
+
+function scoreColor(score: number): string {
+  if (score >= 70) return '#22C55E';
+  if (score >= 50) return '#F59E0B';
+  return '#EF4444';
+}
+
 export default function ExerciseCameraScreen({ navigation, route }: Props) {
   const { exerciseName, categoryColor } = route.params;
-  const [isTracking, setIsTracking] = useState(false);
   const [cameraPosition, setCameraPosition] = useState<CameraPosition>('front');
 
   const { hasPermission, requestPermission } = useCameraPermission();
   const device = useCameraDevice(cameraPosition);
   const insets = useSafeAreaInsets();
-  const { frameProcessor, result } = useBicepsCurlAnalyzer();
+  const {
+    frameProcessor,
+    result,
+    sessionPhase,
+    countdownValue,
+    reference,
+    startSession,
+    stopSession,
+  } = useBicepsCurlAnalyzer();
 
-  // Derived display values — safe defaults before first pose arrives
-  const leftAngle   = result?.angles.leftElbow  ?? null;
-  const rightAngle  = result?.angles.rightElbow ?? null;
-  const leftCount   = result?.leftRepCount  ?? 0;
-  const rightCount  = result?.rightRepCount ?? 0;
-  const displayMode = result?.displayMode  ?? 'bilateral';
-  const leftPhase   = result?.leftPhase  ?? 'down';
-  const rightPhase  = result?.rightPhase ?? 'down';
+  const isTracking = sessionPhase === 'tracking';
 
-  // Any visible arm in "up" phase → YUKARI (mirrors Python logic)
-  const anyUp = leftPhase === 'up' || rightPhase === 'up';
+  const leftAngle       = result?.angles.leftElbow    ?? null;
+  const rightAngle      = result?.angles.rightElbow   ?? null;
+  const leftCount       = result?.leftRepCount        ?? 0;
+  const rightCount      = result?.rightRepCount       ?? 0;
+  const displayMode     = result?.displayMode         ?? 'bilateral';
+  const leftPhase       = result?.leftPhase           ?? 'down';
+  const rightPhase      = result?.rightPhase          ?? 'down';
+  const anyUp           = leftPhase === 'up' || rightPhase === 'up';
+  const liveFormScore   = result?.liveFormScore       ?? null;
+  const lastRepScore    = result?.lastRepScore        ?? null;
+  const lastRepWarnings = result?.lastRepWarnings     ?? [];
+
+  const showStats = sessionPhase === 'tracking' || sessionPhase === 'stopped';
+
+  const handleToggle = () => {
+    if (sessionPhase === 'idle' || sessionPhase === 'stopped') {
+      startSession();
+    } else if (sessionPhase === 'tracking') {
+      stopSession();
+    }
+    // countdown → no-op
+  };
 
   if (!hasPermission) {
     return (
@@ -74,6 +107,14 @@ export default function ExerciseCameraScreen({ navigation, route }: Props) {
         frameProcessor={frameProcessor}
       />
 
+      {/* Countdown overlay */}
+      {sessionPhase === 'countdown' && (
+        <View style={styles.countdownOverlay} pointerEvents="none">
+          <Text style={styles.countdownNumber}>{countdownValue}</Text>
+          <Text style={styles.countdownSub}>hazırlan</Text>
+        </View>
+      )}
+
       {/* Top overlay */}
       <View style={[styles.topOverlay, { paddingTop: insets.top + 10 }]}>
         <TouchableOpacity
@@ -85,47 +126,67 @@ export default function ExerciseCameraScreen({ navigation, route }: Props) {
         <Text style={styles.exerciseName} numberOfLines={1}>
           {exerciseName}
         </Text>
-        {isTracking ? (
-          <View style={styles.recBadge}>
-            <View style={styles.recDot} />
-            <Text style={styles.recText}>REC</Text>
-          </View>
-        ) : (
-          <View style={styles.badgeSpacer} />
-        )}
+        <View style={[styles.stateBadge, isTracking && styles.stateBadgeActive]}>
+          {isTracking && <View style={styles.recDot} />}
+          <Text style={[styles.stateBadgeText, isTracking && styles.stateBadgeTextActive]}>
+            {SESSION_PHASE_LABELS[sessionPhase] ?? sessionPhase.toUpperCase()}
+          </Text>
+        </View>
       </View>
 
       {/* Bottom overlay */}
       <View style={[styles.bottomOverlay, { paddingBottom: insets.bottom + 20 }]}>
 
-        {/* Rep count + Phase row */}
-        <View style={styles.statsRow}>
-          {/* Rep count */}
-          <View style={styles.repChip}>
-            <Text style={styles.repChipLabel}>TEKRAR</Text>
-            {displayMode === 'alternating' ? (
-              <Text style={styles.repChipValue}>
-                {leftCount}
-                <Text style={styles.repChipDivider}> | </Text>
-                {rightCount}
+        {/* Reference status */}
+        {showStats && (
+          <View style={styles.refRow}>
+            <View style={[styles.refBadge, reference ? styles.refBadgeOk : styles.refBadgeMissing]}>
+              <Text style={styles.refBadgeText}>
+                {reference
+                  ? `REF${reference.hasHip ? ' + KALÇA' : ''}`
+                  : 'REF YOK'}
               </Text>
-            ) : (
-              <Text style={styles.repChipValue}>
-                {Math.max(leftCount, rightCount)}
-              </Text>
-            )}
-            {displayMode === 'alternating' && (
-              <Text style={styles.repChipSub}>SOL | SAĞ</Text>
-            )}
+            </View>
           </View>
+        )}
 
-          {/* Phase indicator */}
-          <View style={[styles.phasePill, anyUp ? styles.phasePillUp : styles.phasePillDown]}>
-            <Text style={styles.phasePillText}>
-              {anyUp ? '▲  YUKARI' : '▼  AŞAĞI'}
-            </Text>
+        {/* Rep count + Phase + Live form */}
+        {showStats && (
+          <View style={styles.statsRow}>
+            <View style={styles.repChip}>
+              <Text style={styles.repChipLabel}>TEKRAR</Text>
+              {displayMode === 'alternating' ? (
+                <Text style={styles.repChipValue}>
+                  {leftCount}
+                  <Text style={styles.repChipDivider}> | </Text>
+                  {rightCount}
+                </Text>
+              ) : (
+                <Text style={styles.repChipValue}>
+                  {Math.max(leftCount, rightCount)}
+                </Text>
+              )}
+              {displayMode === 'alternating' && (
+                <Text style={styles.repChipSub}>SOL | SAĞ</Text>
+              )}
+            </View>
+
+            <View style={styles.centerCol}>
+              <View style={[styles.phasePill, anyUp ? styles.phasePillUp : styles.phasePillDown]}>
+                <Text style={styles.phasePillText}>
+                  {anyUp ? '▲  YUKARI' : '▼  AŞAĞI'}
+                </Text>
+              </View>
+              {liveFormScore !== null && (
+                <View style={[styles.formPill, { borderColor: scoreColor(liveFormScore) }]}>
+                  <Text style={[styles.formPillText, { color: scoreColor(liveFormScore) }]}>
+                    FORM {liveFormScore.toFixed(0)}%
+                  </Text>
+                </View>
+              )}
+            </View>
           </View>
-        </View>
+        )}
 
         {/* Elbow angle chips */}
         <View style={styles.angleRow}>
@@ -143,9 +204,23 @@ export default function ExerciseCameraScreen({ navigation, route }: Props) {
           </View>
         </View>
 
+        {/* Last rep score + warnings */}
+        {showStats && lastRepScore !== null && (
+          <View style={styles.repReportCard}>
+            <Text style={[styles.repReportScore, { color: scoreColor(lastRepScore) }]}>
+              Son Tekrar: {lastRepScore.toFixed(0)}%
+            </Text>
+            {lastRepWarnings.slice(0, 2).map((w, i) => (
+              <Text key={i} style={styles.repReportWarn}>
+                {'• '}{w}
+              </Text>
+            ))}
+          </View>
+        )}
+
         <CameraControls
           isTracking={isTracking}
-          onToggle={() => setIsTracking(prev => !prev)}
+          onToggle={handleToggle}
           onFlip={() => setCameraPosition(p => p === 'front' ? 'back' : 'front')}
         />
       </View>
@@ -197,12 +272,35 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
   },
 
+  // Countdown
+  countdownOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+  },
+  countdownNumber: {
+    fontSize: 120,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    lineHeight: 130,
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 4 },
+    textShadowRadius: 12,
+  },
+  countdownSub: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.75)',
+    letterSpacing: 3,
+    textTransform: 'uppercase',
+    marginTop: 8,
+  },
+
   // Top overlay
   topOverlay: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
+    top: 0, left: 0, right: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -227,30 +325,58 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     letterSpacing: 0.3,
   },
-  recBadge: {
-    width: 56,
+  stateBadge: {
+    width: 72,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
     gap: 4,
   },
+  stateBadgeActive: {},
   recDot: {
-    width: 8,
-    height: 8,
+    width: 7,
+    height: 7,
     borderRadius: 4,
     backgroundColor: '#EF4444',
   },
-  recText: {
-    fontSize: 12,
+  stateBadgeText: {
+    fontSize: 11,
     fontWeight: '700',
-    color: '#EF4444',
-    letterSpacing: 1,
+    color: 'rgba(255,255,255,0.55)',
+    letterSpacing: 0.8,
   },
-  badgeSpacer: {
-    width: 56,
+  stateBadgeTextActive: {
+    color: '#EF4444',
   },
 
-  // Stats row (rep count + phase)
+  // Reference status
+  refRow: {
+    marginBottom: 8,
+  },
+  refBadge: {
+    paddingHorizontal: 14,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  refBadgeOk: {
+    backgroundColor: 'rgba(34, 197, 94, 0.25)',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.5)',
+  },
+  refBadgeMissing: {
+    backgroundColor: 'rgba(239, 68, 68, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.4)',
+  },
+  refBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+  },
+
+  // Stats row
   statsRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -291,6 +417,10 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
     marginTop: 1,
   },
+  centerCol: {
+    alignItems: 'center',
+    gap: 8,
+  },
   phasePill: {
     borderRadius: 20,
     paddingHorizontal: 18,
@@ -308,12 +438,23 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     letterSpacing: 0.5,
   },
+  formPill: {
+    borderRadius: 12,
+    borderWidth: 1.5,
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+  },
+  formPillText: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
 
   // Angle display
   angleRow: {
     flexDirection: 'row',
     gap: 24,
-    marginBottom: 16,
+    marginBottom: 10,
   },
   angleChip: {
     alignItems: 'center',
@@ -342,18 +483,38 @@ const styles = StyleSheet.create({
     minWidth: 72,
   },
 
+  // Last rep report
+  repReportCard: {
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    marginBottom: 12,
+    alignSelf: 'stretch',
+    marginHorizontal: 16,
+  },
+  repReportScore: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+    marginBottom: 4,
+  },
+  repReportWarn: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.75)',
+    lineHeight: 18,
+  },
+
   // Bottom overlay
   bottomOverlay: {
     position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingTop: 20,
+    bottom: 0, left: 0, right: 0,
+    paddingTop: 16,
     alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.42)',
   },
 
-  // No device error
+  // Error
   errorContainer: {
     flex: 1,
     backgroundColor: '#1A1A2E',

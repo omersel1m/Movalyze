@@ -7,34 +7,36 @@ import {
   StyleSheet,
   Animated,
   Easing,
+  Modal,
+  FlatList,
+  Pressable,
 } from 'react-native';
-import { Pencil } from 'lucide-react-native';
+import { Calendar } from 'lucide-react-native';
 import { supabase } from '../../config/supabaseClient';
-import { statsService, AccuracyEntry } from '../../services/stats.service';
+import { statsService, AccuracyEntry, PeriodStats } from '../../services/stats.service';
 import { statsRepository } from '../../repositories/stats.repository';
 import { DailyStats } from '../../database/models/types';
+import {
+  getRecentDays, getRecentWeeks, getWeekStart,
+  formatDayChip, formatDayFull, formatWeekChip, formatWeekFull,
+  dayRangeISO, weekRangeISO, isSameDay, isSameWeek,
+} from '../../utils/dateUtils';
+import { ERROR_CODE_LABELS } from '../../features/workout/logic/constants/bicepsErrorCodes';
 
-// ─────────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
 
 const CATEGORIES = [
-  { label: 'Therapy', slug: 'therapy' },
-  { label: 'Fitness', slug: 'fitness' },
-  { label: 'Pilates', slug: 'pilates' },
+  { label: 'Fitness',  slug: 'fitness'  },
+  { label: 'Therapy',  slug: 'therapy'  },
+  { label: 'Pilates',  slug: 'pilates'  },
 ];
 
-const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const CHART_DATA = [38, 55, 42, 68, 50, 74, 60, 78, 58, 82];
-const MOCK_COMMON = [
-  { name: 'Squat', reps: 340 },
-  { name: 'Biceps Curl', reps: 265 },
-  { name: 'I. Dumbell P.', reps: 345 },
-];
+const RECENT_DAYS  = getRecentDays(30);   // last 30 days
+const RECENT_WEEKS = getRecentWeeks(12);  // last 12 calendar weeks
 
-// ─────────────────────────────────────────────────────────────────
-// Skeleton
-// ─────────────────────────────────────────────────────────────────
+const ACCENT = '#268479';
+
+// ── Skeleton ──────────────────────────────────────────────────────────────────
 
 function Skeleton({ width, height, style }: { width: number | string; height: number; style?: object }) {
   const opacity = useRef(new Animated.Value(0.3)).current;
@@ -51,30 +53,7 @@ function Skeleton({ width, height, style }: { width: number | string; height: nu
   );
 }
 
-// ─────────────────────────────────────────────────────────────────
-// Passive: Mini Bar Chart
-// ─────────────────────────────────────────────────────────────────
-
-function MiniBarChart() {
-  return (
-    <View style={chartStyles.root}>
-      {CHART_DATA.map((val, i) => (
-        <View key={i} style={chartStyles.barWrapper}>
-          <View style={[chartStyles.bar, { height: (val / 100) * 64, opacity: 0.5 + i * 0.04 }]} />
-        </View>
-      ))}
-    </View>
-  );
-}
-const chartStyles = StyleSheet.create({
-  root: { flexDirection: 'row', height: 72, alignItems: 'flex-end', gap: 4 },
-  barWrapper: { flex: 1 },
-  bar: { backgroundColor: '#268479', borderRadius: 3 },
-});
-
-// ─────────────────────────────────────────────────────────────────
-// Passive: Donut Placeholder
-// ─────────────────────────────────────────────────────────────────
+// ── Donut Placeholder ─────────────────────────────────────────────────────────
 
 function DonutPlaceholder() {
   return (
@@ -86,35 +65,38 @@ function DonutPlaceholder() {
   );
 }
 const donutStyles = StyleSheet.create({
-  root: { width: 110, height: 110, alignItems: 'center', justifyContent: 'center' },
+  root: { width: 100, height: 100, alignItems: 'center', justifyContent: 'center' },
   outerRing: {
-    width: 110,
-    height: 110,
-    borderRadius: 55,
-    borderWidth: 24,
-    borderColor: '#268479',
-    borderTopColor: '#5DB8AE',
-    borderRightColor: '#AEBC2E',
-    borderBottomColor: '#C5E8E5',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 100, height: 100, borderRadius: 50,
+    borderWidth: 22,
+    borderColor: ACCENT,
+    borderTopColor: '#5DB8AE', borderRightColor: '#AEBC2E', borderBottomColor: '#C5E8E5',
+    alignItems: 'center', justifyContent: 'center',
   },
-  innerHole: { width: 54, height: 54, borderRadius: 27, backgroundColor: '#FFFFFF' },
+  innerHole: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#FFFFFF' },
 });
 
-// ─────────────────────────────────────────────────────────────────
-// Main Component
-// ─────────────────────────────────────────────────────────────────
+// ── Main Component ────────────────────────────────────────────────────────────
 
 export default function StatsScreen() {
-  const [activeTab, setActiveTab] = useState<'Daily' | 'Weekly'>('Daily');
+  const today      = RECENT_DAYS[0];
+  const thisWeek   = RECENT_WEEKS[0];
+
+  const [activeTab,        setActiveTab]        = useState<'Daily' | 'Weekly'>('Daily');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [dailyStats, setDailyStats] = useState<DailyStats | null>(null);
-  const [exerciseCategoryMap, setExerciseCategoryMap] = useState<
-    Array<{ exerciseSlug: string; categorySlug: string }>
-  >([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [selectedDate,     setSelectedDate]     = useState<Date>(today);
+  const [selectedWeek,     setSelectedWeek]     = useState<Date>(thisWeek);
+  const [showDateModal,    setShowDateModal]     = useState(false);
+  const [showWeekModal,    setShowWeekModal]     = useState(false);
+
+  // Legacy accuracy card data
+  const [dailyStats,          setDailyStats]          = useState<DailyStats | null>(null);
+  const [exerciseCategoryMap, setExerciseCategoryMap] = useState<Array<{ exerciseSlug: string; categorySlug: string }>>([]);
+
+  // New dynamic period stats
+  const [periodStats, setPeriodStats] = useState<PeriodStats | null>(null);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -123,19 +105,29 @@ export default function StatsScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setError('Kullanıcı bulunamadı.'); return; }
 
-      const [stats, catMap] = await Promise.all([
-        statsService.getDailyStats(user.id),
-        statsRepository.getExercisesWithCategory(),
-      ]);
-
-      setDailyStats(stats);
-      setExerciseCategoryMap(catMap);
+      if (activeTab === 'Daily') {
+        const [stats, catMap, period] = await Promise.all([
+          statsService.getDailyStats(user.id),
+          statsRepository.getExercisesWithCategory(),
+          statsService.getDayStats(user.id, selectedDate, selectedCategory),
+        ]);
+        setDailyStats(stats);
+        setExerciseCategoryMap(catMap);
+        setPeriodStats(period);
+      } else {
+        const [catMap, period] = await Promise.all([
+          statsRepository.getExercisesWithCategory(),
+          statsService.getWeekStats(user.id, selectedWeek, selectedCategory),
+        ]);
+        setExerciseCategoryMap(catMap);
+        setPeriodStats(period);
+      }
     } catch (e: any) {
       setError(e.message ?? 'Veriler yüklenemedi.');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [activeTab, selectedDate, selectedWeek, selectedCategory]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -148,31 +140,51 @@ export default function StatsScreen() {
     : [];
 
   const overallAccuracy = dailyStats?.avg_accuracy_pct ?? null;
+  const { formImprovement, mostCommon, errorBreakdown } = periodStats ?? {
+    formImprovement: { currentAvg: null, previousAvg: null, changePct: null },
+    mostCommon: [],
+    errorBreakdown: [],
+  };
 
-  // ── Render ────────────────────────────────────────────────────
+  const periodLabel = activeTab === 'Daily'
+    ? formatDayFull(selectedDate)
+    : formatWeekFull(selectedWeek);
+
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <ScrollView style={styles.root} showsVerticalScrollIndicator={false}>
-      {/* Page Header */}
-      <View style={styles.pageHeader}>
-        <Text style={styles.pageTitle}>Stats</Text>
-      </View>
+    <View style={styles.root}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
 
-      {/* Daily / Weekly Tabs */}
-      <View style={styles.tabs}>
-        {(['Daily', 'Weekly'] as const).map(tab => (
-          <TouchableOpacity key={tab} onPress={() => setActiveTab(tab)} style={styles.tabBtn}>
-            <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>{tab}</Text>
-            {activeTab === tab && <View style={styles.tabUnderline} />}
+        {/* Page Header */}
+        <View style={styles.pageHeader}>
+          <Text style={styles.pageTitle}>İstatistik</Text>
+          {/* Period label + picker button */}
+          <TouchableOpacity
+            style={styles.periodBtn}
+            onPress={() => activeTab === 'Daily' ? setShowDateModal(true) : setShowWeekModal(true)}>
+            <Calendar size={14} color={ACCENT} strokeWidth={2} />
+            <Text style={styles.periodBtnText} numberOfLines={1}>
+              {activeTab === 'Daily'
+                ? formatDayChip(selectedDate) + ' ' + selectedDate.getFullYear()
+                : formatWeekChip(selectedWeek)}
+            </Text>
           </TouchableOpacity>
-        ))}
-      </View>
+        </View>
 
-      {/* ── Correct Repetition Rate ── [ACTIVE] */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Correct Repetition Rate</Text>
+        {/* Daily / Weekly Tabs */}
+        <View style={styles.tabs}>
+          {(['Daily', 'Weekly'] as const).map(tab => (
+            <TouchableOpacity key={tab} onPress={() => setActiveTab(tab)} style={styles.tabBtn}>
+              <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
+                {tab === 'Daily' ? 'Günlük' : 'Haftalık'}
+              </Text>
+              {activeTab === tab && <View style={styles.tabUnderline} />}
+            </TouchableOpacity>
+          ))}
+        </View>
 
-        {/* Category Filter */}
+        {/* Category Filter pills */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
           {CATEGORIES.map(cat => {
             const active = selectedCategory === cat.slug;
@@ -189,151 +201,385 @@ export default function StatsScreen() {
           })}
         </ScrollView>
 
-        {/* Overall Accuracy */}
-        {loading ? (
-          <View style={{ gap: 8, marginTop: 12 }}>
-            <Skeleton width={120} height={40} />
-            <Skeleton width={180} height={16} />
-          </View>
-        ) : error ? (
-          <Text style={styles.errorText}>{error}</Text>
-        ) : dailyStats === null ? (
-          <Text style={styles.emptyText}>Henüz istatistik yok.</Text>
-        ) : (
-          <>
-            <View style={styles.overallRow}>
-              <Text style={styles.overallPct}>
-                {overallAccuracy !== null ? `${Math.round(overallAccuracy)}%` : '—'}
-              </Text>
-              <Text style={styles.overallLabel}>Overall Form Accuracy</Text>
+        {/* ── Most Common Exercises ── */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>En Sık Yapılan Egzersizler</Text>
+          {loading ? (
+            <View style={{ gap: 8 }}>
+              <Skeleton width="60%" height={16} />
+              <Skeleton width="50%" height={16} />
+              <Skeleton width="40%" height={16} />
             </View>
-            <Text style={styles.weekChange}>This week +10%</Text>
+          ) : !periodStats?.hasData ? (
+            <Text style={styles.emptyText}>Henüz istatistik yok.</Text>
+          ) : mostCommon.length === 0 ? (
+            <Text style={styles.emptyText}>Bu kategoride veri yok.</Text>
+          ) : (
+            <View style={styles.commonRow}>
+              {mostCommon.slice(0, 3).map(item => (
+                <View key={item.slug} style={styles.commonBox}>
+                  <Text style={styles.commonReps}>{item.totalReps}</Text>
+                  <Text style={styles.commonRepsLabel}>tekrar</Text>
+                  <Text style={styles.commonName}>{item.name}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
 
-            {/* Exercise Accuracy List */}
-            <View style={styles.accuracyList}>
-              {accuracyList.length === 0 ? (
-                <Text style={styles.emptyText}>Bu kategoride veri yok.</Text>
-              ) : (
-                accuracyList.map(entry => (
-                  <View key={entry.slug} style={styles.accuracyRow}>
-                    <Text style={styles.accuracyName}>{entry.slug.replace(/_/g, ' ')}</Text>
-                    <View style={styles.accuracyBarBg}>
-                      <View
-                        style={[
-                          styles.accuracyBarFill,
-                          {
-                            width: `${entry.avg_accuracy}%`,
-                            backgroundColor: statsService.accuracyColor(entry.avg_accuracy),
-                          },
-                        ]}
-                      />
-                    </View>
-                    <Text style={[styles.accuracyPct, { color: statsService.accuracyColor(entry.avg_accuracy) }]}>
-                      {Math.round(entry.avg_accuracy)}%
-                    </Text>
-                  </View>
-                ))
-              )}
+        {/* ── Form Improvement ── */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>
+            {activeTab === 'Daily' ? 'Günlük Form Gelişimi' : 'Haftalık Form Gelişimi'}
+          </Text>
+          {loading ? (
+            <View style={{ gap: 8 }}>
+              <Skeleton width={100} height={40} />
+              <Skeleton width={160} height={16} />
             </View>
-          </>
+          ) : !periodStats?.hasData || formImprovement.currentAvg === null ? (
+            <Text style={styles.emptyText}>Henüz istatistik yok.</Text>
+          ) : (
+            <>
+              <View style={styles.improvementRow}>
+                <Text style={styles.improvementScore}>
+                  {Math.round(formImprovement.currentAvg)}
+                  <Text style={styles.improvementUnit}>%</Text>
+                </Text>
+                <View style={styles.improvementMeta}>
+                  <Text style={[
+                    styles.improvementChange,
+                    { color: statsService.changeColor(formImprovement.changePct) },
+                  ]}>
+                    {statsService.formatChange(formImprovement.changePct)}
+                  </Text>
+                  <Text style={styles.improvementSub}>
+                    {activeTab === 'Daily' ? 'önceki güne göre' : 'önceki haftaya göre'}
+                  </Text>
+                </View>
+              </View>
+              {formImprovement.previousAvg !== null && (
+                <Text style={styles.improvementPrev}>
+                  Önceki: {Math.round(formImprovement.previousAvg)}%
+                </Text>
+              )}
+            </>
+          )}
+        </View>
+
+        {/* ── Form Error Breakdown ── */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Hata Dağılımı</Text>
+          {loading ? (
+            <Skeleton width="100%" height={80} />
+          ) : !periodStats?.hasData || errorBreakdown.length === 0 ? (
+            <View style={styles.donutRow}>
+              <DonutPlaceholder />
+              <Text style={[styles.emptyText, { marginLeft: 16 }]}>
+                {periodStats?.hasData ? 'Hata kaydı yok.' : 'Henüz istatistik yok.'}
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.donutRow}>
+              <DonutPlaceholder />
+              <View style={styles.legendCol}>
+                {errorBreakdown.slice(0, 4).map((e, i) => {
+                  const colors = [ACCENT, '#5DB8AE', '#AEBC2E', '#F97316'];
+                  const label = (ERROR_CODE_LABELS as Record<string, string>)[e.errorCode] ?? e.errorCode;
+                  return (
+                    <View key={e.errorCode} style={styles.legendItem}>
+                      <View style={[styles.legendDot, { backgroundColor: colors[i % colors.length] }]} />
+                      <Text style={styles.legendText}>{label}</Text>
+                      <Text style={styles.legendCount}>{e.totalCount}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+          )}
+        </View>
+
+        {/* ── Correct Repetition Rate (legacy accuracy card) ── */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Tekrar Doğruluk Oranı</Text>
+          {loading ? (
+            <View style={{ gap: 8, marginTop: 4 }}>
+              <Skeleton width={120} height={40} />
+              <Skeleton width={180} height={16} />
+            </View>
+          ) : error ? (
+            <Text style={styles.errorText}>{error}</Text>
+          ) : dailyStats === null ? (
+            <Text style={styles.emptyText}>Henüz istatistik yok.</Text>
+          ) : (
+            <>
+              <View style={styles.overallRow}>
+                <Text style={styles.overallPct}>
+                  {overallAccuracy !== null ? `${Math.round(overallAccuracy)}%` : '—'}
+                </Text>
+                <Text style={styles.overallLabel}>Genel Form Doğruluğu</Text>
+              </View>
+              <View style={styles.accuracyList}>
+                {accuracyList.length === 0 ? (
+                  <Text style={styles.emptyText}>Bu kategoride veri yok.</Text>
+                ) : (
+                  accuracyList.map(entry => (
+                    <View key={entry.slug} style={styles.accuracyRow}>
+                      <Text style={styles.accuracyName}>{entry.slug.replace(/_/g, ' ')}</Text>
+                      <View style={styles.accuracyBarBg}>
+                        <View
+                          style={[
+                            styles.accuracyBarFill,
+                            { width: `${entry.avg_accuracy}%`, backgroundColor: statsService.accuracyColor(entry.avg_accuracy) },
+                          ]}
+                        />
+                      </View>
+                      <Text style={[styles.accuracyPct, { color: statsService.accuracyColor(entry.avg_accuracy) }]}>
+                        {Math.round(entry.avg_accuracy)}%
+                      </Text>
+                    </View>
+                  ))
+                )}
+              </View>
+            </>
+          )}
+        </View>
+
+        <View style={{ height: 16 }} />
+      </ScrollView>
+
+      {/* ── Day / Week Selector ─────────────────────────────────── */}
+      <View style={styles.selectorBar}>
+        {activeTab === 'Daily' ? (
+          <DaySelector
+            days={RECENT_DAYS}
+            selected={selectedDate}
+            onSelect={setSelectedDate}
+            onOpenModal={() => setShowDateModal(true)}
+          />
+        ) : (
+          <WeekSelector
+            weeks={RECENT_WEEKS}
+            selected={selectedWeek}
+            onSelect={setSelectedWeek}
+            onOpenModal={() => setShowWeekModal(true)}
+          />
         )}
       </View>
 
-      {/* ── Most Common Exercises ── [PASSIVE] */}
-      <View style={[styles.card, styles.passive]}>
-        <Text style={styles.cardTitle}>Most Common Exercises</Text>
-        <View style={styles.commonRow}>
-          {MOCK_COMMON.map(item => (
-            <View key={item.name} style={styles.commonBox}>
-              <Text style={styles.commonReps}>{item.reps}</Text>
-              <Text style={styles.commonRepsLabel}>Reps</Text>
-              <Text style={styles.commonName}>{item.name}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
+      {/* ── Date Picker Modal ────────────────────────────────────── */}
+      <Modal visible={showDateModal} transparent animationType="slide" onRequestClose={() => setShowDateModal(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setShowDateModal(false)}>
+          <Pressable style={styles.modalSheet} onPress={e => e.stopPropagation()}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>Gün Seç</Text>
+            <FlatList
+              data={RECENT_DAYS}
+              keyExtractor={d => d.toISOString()}
+              renderItem={({ item }) => {
+                const isSelected = isSameDay(item, selectedDate);
+                const isToday    = isSameDay(item, today);
+                return (
+                  <TouchableOpacity
+                    style={[styles.modalRow, isSelected && styles.modalRowSelected]}
+                    onPress={() => { setSelectedDate(item); setShowDateModal(false); }}>
+                    <Text style={[styles.modalRowText, isSelected && styles.modalRowTextSelected]}>
+                      {formatDayFull(item)}
+                      {isToday ? ' (Bugün)' : ''}
+                    </Text>
+                    {isSelected && <Text style={styles.modalCheck}>✓</Text>}
+                  </TouchableOpacity>
+                );
+              }}
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
 
-      {/* ── Weekly Form Improvement ── [PASSIVE] */}
-      <View style={[styles.card, styles.passive]}>
-        <Text style={styles.cardTitle}>Weekly Form Improvement</Text>
-        <Text style={styles.improvementPct}>+5% <Text style={styles.improvementSub}>Last week</Text></Text>
-        <MiniBarChart />
-        <View style={styles.weekLabels}>
-          {['Week 15', 'Week 16', 'Week 17', 'Week 18', 'Week 19'].map(w => (
-            <Text key={w} style={styles.weekLabel}>{w}</Text>
-          ))}
-        </View>
-      </View>
-
-      {/* ── Form Error Breakdown ── [PASSIVE] */}
-      <View style={[styles.card, styles.passive]}>
-        <Text style={styles.cardTitle}>Form Error Breakdown</Text>
-        <TouchableOpacity style={styles.filterDropdown} disabled>
-          <Text style={styles.filterDropdownText}>General ▾</Text>
-        </TouchableOpacity>
-        <View style={styles.donutRow}>
-          <DonutPlaceholder />
-          <View style={styles.legendCol}>
-            {['#268479', '#5DB8AE', '#AEBC2E', '#C5E8E5'].map((color, i) => (
-              <View key={i} style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: color }]} />
-                <Text style={styles.legendText}>General</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-      </View>
-
-      {/* ── AI Suggestion ── [PASSIVE] */}
-      <View style={[styles.card, styles.passive]}>
-        <View style={styles.aiRow}>
-          <Pencil size={16} color="#268479" strokeWidth={1.75} />
-          <Text style={styles.aiText}>
-            Squat performansın %10 arttı, ancak shoulder press formun zayıftır. Omuz hizasına dikkat et.
-          </Text>
-        </View>
-      </View>
-
-      {/* ── Activity Bar Mon–Sun ── [PASSIVE] */}
-      <View style={[styles.card, styles.passive]}>
-        <View style={styles.activityRow}>
-          {DAYS.map((day, i) => (
-            <View key={day} style={styles.dayCol}>
-              <View style={[styles.dayDot, i < 3 && styles.dayDotActive]} />
-              <Text style={styles.dayLabel}>{day}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
-
-      <View style={{ height: 32 }} />
-    </ScrollView>
+      {/* ── Week Picker Modal ────────────────────────────────────── */}
+      <Modal visible={showWeekModal} transparent animationType="slide" onRequestClose={() => setShowWeekModal(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setShowWeekModal(false)}>
+          <Pressable style={styles.modalSheet} onPress={e => e.stopPropagation()}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>Hafta Seç</Text>
+            <FlatList
+              data={RECENT_WEEKS}
+              keyExtractor={d => d.toISOString()}
+              renderItem={({ item }) => {
+                const isSelected = isSameWeek(item, selectedWeek);
+                const isThis     = isSameWeek(item, thisWeek);
+                return (
+                  <TouchableOpacity
+                    style={[styles.modalRow, isSelected && styles.modalRowSelected]}
+                    onPress={() => { setSelectedWeek(item); setShowWeekModal(false); }}>
+                    <Text style={[styles.modalRowText, isSelected && styles.modalRowTextSelected]}>
+                      {formatWeekFull(item)}
+                      {isThis ? ' (Bu Hafta)' : ''}
+                    </Text>
+                    {isSelected && <Text style={styles.modalCheck}>✓</Text>}
+                  </TouchableOpacity>
+                );
+              }}
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </View>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────
-// Styles
-// ─────────────────────────────────────────────────────────────────
+// ── Day Selector ──────────────────────────────────────────────────────────────
+
+interface DaySelectorProps {
+  days: Date[];
+  selected: Date;
+  onSelect: (d: Date) => void;
+  onOpenModal: () => void;
+}
+
+function DaySelector({ days, selected, onSelect, onOpenModal }: DaySelectorProps) {
+  const scrollRef = useRef<ScrollView>(null);
+  const today = days[0];
+
+  return (
+    <View style={styles.selectorInner}>
+      <View style={styles.selectorHeader}>
+        <Text style={styles.selectorHeaderLabel}>
+          {isSameDay(selected, today) ? 'Bugün' : formatDayFull(selected)}
+        </Text>
+        <TouchableOpacity onPress={onOpenModal} style={styles.selectorPickerBtn}>
+          <Calendar size={14} color={ACCENT} strokeWidth={2} />
+          <Text style={styles.selectorPickerText}>Tarih Seç</Text>
+        </TouchableOpacity>
+      </View>
+      <ScrollView
+        ref={scrollRef}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.selectorScroll}>
+        {days.map((day, i) => {
+          const isSelected = isSameDay(day, selected);
+          const isToday    = i === 0;
+          return (
+            <TouchableOpacity
+              key={day.toISOString()}
+              style={[styles.dayChip, isSelected && styles.dayChipSelected]}
+              onPress={() => onSelect(day)}>
+              <Text style={[styles.dayChipNum, isSelected && styles.dayChipTextSelected]}>
+                {day.getDate()}
+              </Text>
+              <Text style={[styles.dayChipMon, isSelected && styles.dayChipTextSelected]}>
+                {isToday ? 'Bugün' : formatDayChip(day).split(' ')[1]}
+              </Text>
+              {isSelected && <View style={styles.dayChipDot} />}
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+}
+
+// ── Week Selector ─────────────────────────────────────────────────────────────
+
+interface WeekSelectorProps {
+  weeks: Date[];
+  selected: Date;
+  onSelect: (w: Date) => void;
+  onOpenModal: () => void;
+}
+
+function WeekSelector({ weeks, selected, onSelect, onOpenModal }: WeekSelectorProps) {
+  const thisWeek = weeks[0];
+  return (
+    <View style={styles.selectorInner}>
+      <View style={styles.selectorHeader}>
+        <Text style={styles.selectorHeaderLabel}>
+          {isSameWeek(selected, thisWeek) ? 'Bu Hafta' : formatWeekChip(selected)}
+        </Text>
+        <TouchableOpacity onPress={onOpenModal} style={styles.selectorPickerBtn}>
+          <Calendar size={14} color={ACCENT} strokeWidth={2} />
+          <Text style={styles.selectorPickerText}>Hafta Seç</Text>
+        </TouchableOpacity>
+      </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.selectorScroll}>
+        {weeks.map((week, i) => {
+          const isSelected = isSameWeek(week, selected);
+          return (
+            <TouchableOpacity
+              key={week.toISOString()}
+              style={[styles.dayChip, styles.weekChip, isSelected && styles.dayChipSelected]}
+              onPress={() => onSelect(week)}>
+              <Text style={[styles.dayChipNum, styles.weekChipText, isSelected && styles.dayChipTextSelected]}>
+                {formatWeekChip(week)}
+              </Text>
+              {i === 0 && (
+                <Text style={[styles.dayChipMon, isSelected && styles.dayChipTextSelected]}>
+                  Bu Hafta
+                </Text>
+              )}
+              {isSelected && <View style={styles.dayChipDot} />}
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+}
+
+// ── Styles ────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#F5F5F5' },
+  scrollContent: { paddingBottom: 8 },
 
   // Page header
-  pageHeader: { paddingTop: 52, paddingHorizontal: 20, paddingBottom: 8 },
+  pageHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 52,
+    paddingHorizontal: 20,
+    paddingBottom: 8,
+  },
   pageTitle: { fontSize: 22, fontWeight: '800', color: '#1A1A2E' },
+  periodBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#EBF5F4',
+  },
+  periodBtnText: { fontSize: 13, fontWeight: '600', color: ACCENT },
 
   // Tabs
-  tabs: { flexDirection: 'row', paddingHorizontal: 20, marginBottom: 12 },
+  tabs: { flexDirection: 'row', paddingHorizontal: 20, marginBottom: 10 },
   tabBtn: { marginRight: 20, paddingBottom: 4 },
   tabText: { fontSize: 15, fontWeight: '600', color: '#ADADAD' },
-  tabTextActive: { color: '#268479' },
-  tabUnderline: { height: 2, backgroundColor: '#268479', borderRadius: 2, marginTop: 2 },
+  tabTextActive: { color: ACCENT },
+  tabUnderline: { height: 2, backgroundColor: ACCENT, borderRadius: 2, marginTop: 2 },
+
+  // Category filter
+  filterRow: { paddingHorizontal: 20, marginBottom: 12 },
+  pill: {
+    paddingHorizontal: 16, paddingVertical: 6,
+    borderRadius: 20, borderWidth: 1.5, borderColor: ACCENT,
+    marginRight: 8,
+  },
+  pillActive: { backgroundColor: ACCENT },
+  pillText: { fontSize: 13, fontWeight: '600', color: ACCENT },
+  pillTextActive: { color: '#FFFFFF' },
 
   // Cards
   card: {
     backgroundColor: '#FFFFFF',
     marginHorizontal: 16,
-    marginBottom: 14,
+    marginBottom: 12,
     borderRadius: 16,
     padding: 16,
     shadowColor: '#000',
@@ -341,79 +587,190 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 2,
   },
-  passive: { opacity: 0.5 },
   cardTitle: { fontSize: 14, fontWeight: '700', color: '#1A1A2E', marginBottom: 12 },
 
-  // Category filter pills
-  filterRow: { marginBottom: 14 },
-  pill: {
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    borderRadius: 20,
-    borderWidth: 1.5,
-    borderColor: '#268479',
-    marginRight: 8,
-  },
-  pillActive: { backgroundColor: '#268479' },
-  pillText: { fontSize: 13, fontWeight: '600', color: '#268479' },
-  pillTextActive: { color: '#FFFFFF' },
+  // Most Common
+  commonRow: { flexDirection: 'row', justifyContent: 'space-around' },
+  commonBox: { alignItems: 'center', flex: 1 },
+  commonReps: { fontSize: 28, fontWeight: '900', color: ACCENT },
+  commonRepsLabel: { fontSize: 10, color: '#8A8A8A', marginBottom: 2 },
+  commonName: { fontSize: 11, fontWeight: '600', color: '#1A1A2E', textAlign: 'center' },
 
-  // Overall accuracy
+  // Form Improvement
+  improvementRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 4 },
+  improvementScore: { fontSize: 44, fontWeight: '900', color: '#1A1A2E' },
+  improvementUnit: { fontSize: 22, fontWeight: '600', color: '#8A8A8A' },
+  improvementMeta: { gap: 2 },
+  improvementChange: { fontSize: 18, fontWeight: '800' },
+  improvementSub: { fontSize: 11, color: '#8A8A8A' },
+  improvementPrev: { fontSize: 12, color: '#8A8A8A', marginTop: 2 },
+
+  // Accuracy
   overallRow: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 2 },
   overallPct: { fontSize: 40, fontWeight: '900', color: '#1A1A2E', marginRight: 8 },
   overallLabel: { fontSize: 13, color: '#8A8A8A', marginBottom: 6 },
-  weekChange: { fontSize: 12, color: '#268479', fontWeight: '600', marginBottom: 14 },
-
-  // Accuracy list
-  accuracyList: { gap: 10 },
+  accuracyList: { gap: 10, marginTop: 4 },
   accuracyRow: { flexDirection: 'row', alignItems: 'center' },
   accuracyName: { width: 110, fontSize: 13, color: '#1A1A2E', textTransform: 'capitalize' },
   accuracyBarBg: { flex: 1, height: 6, backgroundColor: '#F0F0F0', borderRadius: 3, marginHorizontal: 8 },
   accuracyBarFill: { height: 6, borderRadius: 3 },
   accuracyPct: { width: 38, fontSize: 13, fontWeight: '700', textAlign: 'right' },
 
-  // Most Common
-  commonRow: { flexDirection: 'row', justifyContent: 'space-around' },
-  commonBox: { alignItems: 'center' },
-  commonReps: { fontSize: 28, fontWeight: '900', color: '#268479' },
-  commonRepsLabel: { fontSize: 11, color: '#8A8A8A' },
-  commonName: { fontSize: 11, fontWeight: '600', color: '#1A1A2E', textAlign: 'center', marginTop: 2 },
-
-  // Weekly improvement
-  improvementPct: { fontSize: 26, fontWeight: '900', color: '#268479', marginBottom: 12 },
-  improvementSub: { fontSize: 13, fontWeight: '400', color: '#8A8A8A' },
-  weekLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
-  weekLabel: { fontSize: 10, color: '#8A8A8A' },
-
-  // Error Breakdown
-  filterDropdown: {
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginBottom: 14,
-  },
-  filterDropdownText: { fontSize: 13, color: '#1A1A2E' },
-  donutRow: { flexDirection: 'row', alignItems: 'center', gap: 24 },
-  legendCol: { gap: 10 },
+  // Error breakdown
+  donutRow: { flexDirection: 'row', alignItems: 'center', gap: 20 },
+  legendCol: { flex: 1, gap: 8 },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  legendDot: { width: 12, height: 12, borderRadius: 6 },
-  legendText: { fontSize: 12, color: '#1A1A2E' },
-
-  // AI Suggestion
-  aiRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
-  aiText: { flex: 1, fontSize: 12, color: '#1A1A2E', lineHeight: 18, fontStyle: 'italic' },
-
-  // Activity bar
-  activityRow: { flexDirection: 'row', justifyContent: 'space-around' },
-  dayCol: { alignItems: 'center', gap: 4 },
-  dayDot: { width: 28, height: 28, borderRadius: 6, backgroundColor: '#E0E0E0' },
-  dayDotActive: { backgroundColor: '#268479' },
-  dayLabel: { fontSize: 10, color: '#8A8A8A' },
+  legendDot: { width: 10, height: 10, borderRadius: 5 },
+  legendText: { flex: 1, fontSize: 12, color: '#1A1A2E' },
+  legendCount: { fontSize: 12, fontWeight: '700', color: '#8A8A8A' },
 
   // States
   errorText: { color: '#E53E3E', fontSize: 13, marginTop: 8 },
-  emptyText: { color: '#8A8A8A', fontSize: 13, marginTop: 8 },
+  emptyText: { color: '#8A8A8A', fontSize: 13, marginTop: 4 },
+
+  // ── Day/Week Selector Bar ────────────────────────────────────────────────
+  selectorBar: {
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
+    paddingBottom: 8,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: -3 },
+    elevation: 6,
+  },
+  selectorInner: { paddingTop: 10 },
+  selectorHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    marginBottom: 10,
+  },
+  selectorHeaderLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1A1A2E',
+  },
+  selectorPickerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 14,
+    backgroundColor: '#EBF5F4',
+  },
+  selectorPickerText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: ACCENT,
+  },
+  selectorScroll: {
+    paddingHorizontal: 12,
+    gap: 8,
+  },
+  dayChip: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    backgroundColor: '#F5F5F5',
+    minWidth: 52,
+    gap: 2,
+  },
+  dayChipSelected: {
+    backgroundColor: ACCENT,
+  },
+  dayChipNum: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#1A1A2E',
+  },
+  dayChipMon: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: '#8A8A8A',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  dayChipTextSelected: {
+    color: '#FFFFFF',
+  },
+  dayChipDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    marginTop: 2,
+  },
+  weekChip: {
+    minWidth: 80,
+    paddingHorizontal: 12,
+  },
+  weekChipText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+
+  // ── Modal ────────────────────────────────────────────────────────────────
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '70%',
+    paddingBottom: 32,
+  },
+  modalHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#E0E0E0',
+    alignSelf: 'center',
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#1A1A2E',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+    marginBottom: 4,
+  },
+  modalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F8F8F8',
+  },
+  modalRowSelected: {
+    backgroundColor: '#EBF5F4',
+  },
+  modalRowText: {
+    fontSize: 15,
+    color: '#1A1A2E',
+    fontWeight: '500',
+  },
+  modalRowTextSelected: {
+    color: ACCENT,
+    fontWeight: '700',
+  },
+  modalCheck: {
+    fontSize: 16,
+    color: ACCENT,
+    fontWeight: '800',
+  },
 });
