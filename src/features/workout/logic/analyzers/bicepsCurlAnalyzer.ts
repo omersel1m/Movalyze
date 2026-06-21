@@ -13,6 +13,8 @@ import {
   ERROR_CODE_LABELS,
   BicepsErrorCode,
 } from '../constants/bicepsErrorCodes';
+import { BICEPS_CURL_CONFIG } from '../config/bicepsCurl.config';
+import { AnalyzerEngine } from './engine.types';
 
 const WINDOW_SEC  = 1.0;
 const MAX_REP_LOG = 6;
@@ -499,3 +501,27 @@ export function summarizeBicepsSession(fullRepLog: RepLogEntry[]): BicepsSession
     repLog: fullRepLog, errors, topWarnings,
   };
 }
+
+// ── Engine — plugs into the generic hook / camera screen / save layer ─────────
+
+export const bicepsCurlEngine: AnalyzerEngine = {
+  config: BICEPS_CURL_CONFIG,
+  initialState: INITIAL_BICEPS_CURL_STATE,
+  leftLabel: 'Sol Dirsek',
+  rightLabel: 'Sağ Dirsek',
+  captureReference: (pose, config) => captureReference(pose, config as BicepsCurlConfig),
+  analyze: (pose, prevState, reference, config, now, prevRepLog) =>
+    analyzeBicepsCurl(
+      pose,
+      prevState as BicepsCurlState,
+      reference as BicepsReference | null,
+      config as BicepsCurlConfig,
+      now,
+      prevRepLog,
+    ),
+  summarize: summarizeBicepsSession,
+  getLeftAngle:  result => result.angles.leftElbow  ?? null,
+  getRightAngle: result => result.angles.rightElbow ?? null,
+  describeReference: reference =>
+    (reference as BicepsReference | null)?.hasHip ? 'REF + KALÇA' : 'REF',
+};

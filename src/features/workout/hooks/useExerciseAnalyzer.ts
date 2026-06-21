@@ -3,45 +3,47 @@ import { DeviceEventEmitter } from 'react-native';
 import { VisionCameraProxy, useFrameProcessor } from 'react-native-vision-camera';
 import { PoseLandmarks, toPoseResult, PoseResult } from '../types/pose.types';
 import { smoothPose } from '../logic/pose/poseSmoothing';
-import {
-  analyzeBicepsCurl,
-  captureReference,
-  summarizeBicepsSession,
-  BicepsCurlState,
-  BicepsCurlAnalysisResult,
-  BicepsReference,
-  BicepsSessionSummary,
-  RepLogEntry,
-  INITIAL_BICEPS_CURL_STATE,
-} from '../logic/analyzers/bicepsCurlAnalyzer';
-import { BICEPS_CURL_CONFIG } from '../logic/config/bicepsCurl.config';
 import { SessionPhase } from '../types/analysis.types';
+import {
+  AnalyzerEngine,
+  CommonAnalysisResult,
+  RepLogEntry,
+  WorkoutSessionSummary,
+} from '../logic/analyzers/engine.types';
 
 const plugin = VisionCameraProxy.initFrameProcessorPlugin('detectPose', {});
-const POSE_EVENT       = 'PoseLandmarks';
+const POSE_EVENT        = 'PoseLandmarks';
 const COUNTDOWN_SECONDS = 3;
 
-export function useBicepsCurlAnalyzer() {
-  const [result, setResult]               = useState<BicepsCurlAnalysisResult | null>(null);
-  const [sessionPhase, setSessionPhase]   = useState<SessionPhase>('idle');
+export type SessionSummarySnapshot = WorkoutSessionSummary & { startedAt: Date; endedAt: Date };
+
+// Generic exercise session hook. The exercise-specific math is injected via an
+// AnalyzerEngine; everything here — calibration countdown, session state machine,
+// rep-log accumulation, summary snapshot — is shared across all exercises.
+export function useExerciseAnalyzer(engine: AnalyzerEngine) {
+  const [result, setResult]                 = useState<CommonAnalysisResult | null>(null);
+  const [sessionPhase, setSessionPhase]     = useState<SessionPhase>('idle');
   const [countdownValue, setCountdownValue] = useState<number>(COUNTDOWN_SECONDS);
-  const [reference, setReference]         = useState<BicepsReference | null>(null);
+  const [reference, setReference]           = useState<unknown | null>(null);
+
+  // Keep the latest engine in a ref so the long-lived event listener always uses
+  // the current exercise without resubscribing.
+  const engineRef = useRef(engine);
+  engineRef.current = engine;
 
   const smoothedPoseRef   = useRef<PoseResult | null>(null);
-  const analyzerStateRef  = useRef<BicepsCurlState>(INITIAL_BICEPS_CURL_STATE);
+  const analyzerStateRef  = useRef<unknown>(engine.initialState);
   const repLogRef         = useRef<RepLogEntry[]>([]);
-  const referenceRef      = useRef<BicepsReference | null>(null);
+  const referenceRef      = useRef<unknown | null>(null);
   const sessionPhaseRef   = useRef<SessionPhase>('idle');
   const countdownStartRef = useRef<number>(0);
   const timerRef          = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Full (uncapped) session history for the workout summary. repLogRef above is
-  // capped to MAX_REP_LOG for the live UI; this keeps every completed rep so the
-  // saved session has accurate totals, form scores and error counts.
-  const fullRepLogRef     = useRef<RepLogEntry[]>([]);
-  const seenRepKeysRef    = useRef<Set<string>>(new Set());
-  const startedAtRef      = useRef<Date | null>(null);
-  const endedAtRef        = useRef<Date | null>(null);
+  // Full (uncapped) session history for the summary; repLogRef is capped for UI.
+  const fullRepLogRef  = useRef<RepLogEntry[]>([]);
+  const seenRepKeysRef = useRef<Set<string>>(new Set());
+  const startedAtRef   = useRef<Date | null>(null);
+  const endedAtRef     = useRef<Date | null>(null);
 
   const clearTimer = () => {
     if (timerRef.current !== null) {
@@ -75,14 +77,15 @@ export function useBicepsCurlAnalyzer() {
         return;
       }
 
-      const ref = captureReference(pose, BICEPS_CURL_CONFIG);
+      const eng = engineRef.current;
+      const ref = eng.captureReference(pose, eng.config);
       if (!ref) {
         sessionPhaseRef.current = 'idle';
         setSessionPhase('idle');
         return;
       }
 
-      analyzerStateRef.current = INITIAL_BICEPS_CURL_STATE;
+      analyzerStateRef.current = eng.initialState;
       repLogRef.current        = [];
       fullRepLogRef.current    = [];
       seenRepKeysRef.current   = new Set();
@@ -94,7 +97,7 @@ export function useBicepsCurlAnalyzer() {
       sessionPhaseRef.current = 'tracking';
       setSessionPhase('tracking');
 
-      console.log('[BicepsCurl] Reference captured:', JSON.stringify(ref));
+      console.log('[Exercise] Reference captured:', JSON.stringify(ref));
     }, 250);
   }, []);
 
@@ -105,35 +108,31 @@ export function useBicepsCurlAnalyzer() {
     setSessionPhase('stopped');
   }, []);
 
-  // Snapshot of the just-finished session for the generic save layer.
-  // Returns null if no session was ever started (no reference captured).
-  const buildSummary = useCallback(
-    (): (BicepsSessionSummary & { startedAt: Date; endedAt: Date }) | null => {
-      const startedAt = startedAtRef.current;
-      if (!startedAt) return null;
-      const endedAt = endedAtRef.current ?? new Date();
-      return { ...summarizeBicepsSession(fullRepLogRef.current), startedAt, endedAt };
-    },
-    [],
-  );
+  const buildSummary = useCallback((): SessionSummarySnapshot | null => {
+    const startedAt = startedAtRef.current;
+    if (!startedAt) return null;
+    const endedAt = endedAtRef.current ?? new Date();
+    return { ...engineRef.current.summarize(fullRepLogRef.current), startedAt, endedAt };
+  }, []);
 
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener(POSE_EVENT, (data: any) => {
       if (!Array.isArray(data) || data.length === 0) return;
 
+      const eng      = engineRef.current;
       const rawPose  = toPoseResult(data as PoseLandmarks);
-      const smoothed = smoothPose(rawPose, smoothedPoseRef.current, BICEPS_CURL_CONFIG.SMOOTHING_ALPHA);
+      const smoothed = smoothPose(rawPose, smoothedPoseRef.current, eng.config.SMOOTHING_ALPHA);
       smoothedPoseRef.current = smoothed;
 
       if (sessionPhaseRef.current !== 'tracking') return;
 
       const now = Date.now() / 1000;
 
-      const { result: analysisResult, nextState, nextRepLog } = analyzeBicepsCurl(
+      const { result: analysisResult, nextState, nextRepLog } = eng.analyze(
         smoothed,
         analyzerStateRef.current,
         referenceRef.current,
-        BICEPS_CURL_CONFIG,
+        eng.config,
         now,
         repLogRef.current,
       );
@@ -142,8 +141,6 @@ export function useBicepsCurlAnalyzer() {
       repLogRef.current        = nextRepLog;
 
       // Accumulate newly completed reps into the uncapped session log.
-      // (arm, repNo) is unique within a session, so it dedupes against the
-      // capped UI log that may have dropped older entries.
       for (const entry of nextRepLog) {
         const key = `${entry.arm}:${entry.repNo}`;
         if (!seenRepKeysRef.current.has(key)) {
@@ -151,15 +148,6 @@ export function useBicepsCurlAnalyzer() {
           fullRepLogRef.current.push(entry);
         }
       }
-
-      console.log(
-        '[BicepsCurl]',
-        'L:', analysisResult.angles.leftElbow?.toFixed(1),
-        'R:', analysisResult.angles.rightElbow?.toFixed(1),
-        '| lRep:', analysisResult.leftRepCount,
-        'rRep:', analysisResult.rightRepCount,
-        '| form:', analysisResult.liveFormScore?.toFixed(1),
-      );
 
       setResult(analysisResult);
     });

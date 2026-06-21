@@ -54,3 +54,29 @@ export function calculateTorsoLean(shoulder: PoseLandmark, hip: PoseLandmark): n
     { x: 0, y: 1 },
   );
 }
+
+// Midpoint of two landmarks (x/y/z averaged)
+export function midpoint(a: PoseLandmark, b: PoseLandmark): PoseLandmark {
+  return {
+    x: (a.x + b.x) / 2,
+    y: (a.y + b.y) / 2,
+    z: (a.z + b.z) / 2,
+    visibility: Math.min(a.visibility, b.visibility),
+  };
+}
+
+// Front/back torso lean from a frontal camera, using MediaPipe depth (z).
+// z is depth relative to hips; negative ≈ toward camera. Returns shoulderMid.z −
+// hipMid.z: positive = shoulders behind hips (leaning back), negative = forward.
+// Noisier than 2D angles, so used with a generous tolerance + a standing baseline.
+export function calculateTorsoDepthOffset(shoulderMid: PoseLandmark, hipMid: PoseLandmark): number {
+  return shoulderMid.z - hipMid.z;
+}
+
+// Normalized lateral pelvic drop / hip tilt: vertical hip gap relative to hip
+// width. ~0 when hips are level; grows as one hip drops (twist / side bend).
+export function calculateHipTilt(leftHip: PoseLandmark, rightHip: PoseLandmark): number {
+  const width = Math.abs(leftHip.x - rightHip.x);
+  if (width < 1e-4) return 0;
+  return Math.abs(leftHip.y - rightHip.y) / width;
+}

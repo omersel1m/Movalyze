@@ -15,28 +15,27 @@ import { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WorkoutStackParamList } from '../../../navigation/WorkoutNavigator';
 import CameraControls from '../components/CameraControls';
-import { useBicepsCurlAnalyzer } from '../hooks/useBicepsCurlAnalyzer';
-import { BicepsSessionSummary } from '../logic/analyzers/bicepsCurlAnalyzer';
+import { useExerciseAnalyzer, SessionSummarySnapshot } from '../hooks/useExerciseAnalyzer';
+import { AnalyzerEngine } from '../logic/analyzers/engine.types';
+import { bicepsCurlEngine } from '../logic/analyzers/bicepsCurlAnalyzer';
+import { kneeRaiseEngine } from '../logic/analyzers/kneeRaiseAnalyzer';
 import { workoutSessionService } from '../../../services/workoutSession.service';
 import { authService } from '../../../services/auth.service';
-
-// Exercises whose ExerciseCamera screen has a real analyzer wired up. Other
-// exercises share the screen but show a "coming soon" hint and save nothing.
-// Matched tolerantly (slug OR name) because the DB slug may use underscores,
-// different casing, or differ from the local catalog.
-const BICEPS_CURL_KEY = 'biceps-curl';
 
 function normalizeKey(value: string): string {
   return value.trim().toLowerCase().replace(/[\s_]+/g, '-');
 }
 
-function isBicepsCurl(slug: string, name: string): boolean {
+// Pick the analyzer engine for an exercise from its slug/name. Matched tolerantly
+// because the DB slug may use underscores/casing different from the local catalog.
+// Returns null for exercises that don't have an analyzer yet ("coming soon").
+function selectEngine(slug: string, name: string): AnalyzerEngine | null {
   const keys = [normalizeKey(slug), normalizeKey(name)];
-  // Exact match, or any reference to "biceps" (the only biceps exercise today).
-  return keys.some(k => k === BICEPS_CURL_KEY || k.includes('biceps'));
+  if (keys.some(k => k === 'biceps-curl' || k.includes('biceps'))) return bicepsCurlEngine;
+  if (keys.some(k => k.includes('knee') || k.includes('diz')))     return kneeRaiseEngine;
+  return null;
 }
 
-type SessionSummary = BicepsSessionSummary & { startedAt: Date; endedAt: Date };
 type SaveState = 'idle' | 'saving' | 'saved' | 'local' | 'error';
 
 type Props = {
@@ -65,7 +64,11 @@ function formatDuration(seconds: number): string {
 
 export default function ExerciseCameraScreen({ navigation, route }: Props) {
   const { exerciseId, exerciseName, exerciseSlug, categoryColor } = route.params;
-  const isAnalyzable = isBicepsCurl(exerciseSlug, exerciseName);
+  const selectedEngine = selectEngine(exerciseSlug, exerciseName);
+  const isAnalyzable = selectedEngine !== null;
+  // Hooks can't be conditional: fall back to a default engine when there is no
+  // analyzer; the session is simply never started for non-analyzable exercises.
+  const engine = selectedEngine ?? bicepsCurlEngine;
   const [cameraPosition, setCameraPosition] = useState<CameraPosition>('front');
 
   const { hasPermission, requestPermission } = useCameraPermission();
@@ -80,9 +83,9 @@ export default function ExerciseCameraScreen({ navigation, route }: Props) {
     startSession,
     stopSession,
     buildSummary,
-  } = useBicepsCurlAnalyzer();
+  } = useExerciseAnalyzer(engine);
 
-  const [summary, setSummary]       = useState<SessionSummary | null>(null);
+  const [summary, setSummary]       = useState<SessionSummarySnapshot | null>(null);
   const [showSummary, setShowSummary] = useState(false);
   const [saveState, setSaveState]   = useState<SaveState>('idle');
 
@@ -136,8 +139,8 @@ export default function ExerciseCameraScreen({ navigation, route }: Props) {
     navigation.goBack();
   }, [navigation]);
 
-  const leftAngle       = result?.angles.leftElbow    ?? null;
-  const rightAngle      = result?.angles.rightElbow   ?? null;
+  const leftAngle       = result ? engine.getLeftAngle(result)  : null;
+  const rightAngle      = result ? engine.getRightAngle(result) : null;
   const leftCount       = result?.leftRepCount        ?? 0;
   const rightCount      = result?.rightRepCount       ?? 0;
   const displayMode     = result?.displayMode         ?? 'bilateral';
@@ -239,9 +242,7 @@ export default function ExerciseCameraScreen({ navigation, route }: Props) {
           <View style={styles.refRow}>
             <View style={[styles.refBadge, reference ? styles.refBadgeOk : styles.refBadgeMissing]}>
               <Text style={styles.refBadgeText}>
-                {reference
-                  ? `REF${reference.hasHip ? ' + KALÇA' : ''}`
-                  : 'REF YOK'}
+                {reference ? engine.describeReference(reference) : 'REF YOK'}
               </Text>
             </View>
           </View>
@@ -289,13 +290,13 @@ export default function ExerciseCameraScreen({ navigation, route }: Props) {
         {isAnalyzable && (
           <View style={styles.angleRow}>
             <View style={styles.angleChip}>
-              <Text style={styles.angleChipLabel}>Sol Dirsek</Text>
+              <Text style={styles.angleChipLabel}>{engine.leftLabel}</Text>
               <Text style={styles.angleChipValue}>
                 {leftAngle !== null ? `${Math.round(leftAngle)}°` : '—'}
               </Text>
             </View>
             <View style={styles.angleChip}>
-              <Text style={styles.angleChipLabel}>Sağ Dirsek</Text>
+              <Text style={styles.angleChipLabel}>{engine.rightLabel}</Text>
               <Text style={styles.angleChipValue}>
                 {rightAngle !== null ? `${Math.round(rightAngle)}°` : '—'}
               </Text>
@@ -340,7 +341,7 @@ export default function ExerciseCameraScreen({ navigation, route }: Props) {
 // ── Workout Summary Modal ─────────────────────────────────────────
 interface WorkoutSummaryModalProps {
   visible: boolean;
-  summary: SessionSummary | null;
+  summary: SessionSummarySnapshot | null;
   exerciseName: string;
   accent: string;
   saveState: SaveState;

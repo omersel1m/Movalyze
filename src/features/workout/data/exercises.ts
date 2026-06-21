@@ -6,6 +6,7 @@ export type ExerciseMeta = {
 
 export const EXERCISES: ExerciseMeta[] = [
   { slug: 'biceps-curl', name: 'Biceps Curl', categorySlug: 'fitness' },
+  { slug: 'knee-raise', name: 'Knee Raise', categorySlug: 'pilates' },
   { slug: 'neck-mobility', name: 'Neck Mobility', categorySlug: 'therapy' },
   { slug: 'breathing-control', name: 'Breathing Control', categorySlug: 'pilates' },
 ];
