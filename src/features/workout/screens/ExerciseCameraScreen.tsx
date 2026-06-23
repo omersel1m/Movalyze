@@ -19,6 +19,7 @@ import { useExerciseAnalyzer, SessionSummarySnapshot } from '../hooks/useExercis
 import { AnalyzerEngine } from '../logic/analyzers/engine.types';
 import { bicepsCurlEngine } from '../logic/analyzers/bicepsCurlAnalyzer';
 import { kneeRaiseEngine } from '../logic/analyzers/kneeRaiseAnalyzer';
+import { shoulderAbductionEngine } from '../logic/analyzers/shoulderAbductionAnalyzer';
 import { workoutSessionService } from '../../../services/workoutSession.service';
 import { authService } from '../../../services/auth.service';
 
@@ -31,8 +32,10 @@ function normalizeKey(value: string): string {
 // Returns null for exercises that don't have an analyzer yet ("coming soon").
 function selectEngine(slug: string, name: string): AnalyzerEngine | null {
   const keys = [normalizeKey(slug), normalizeKey(name)];
-  if (keys.some(k => k === 'biceps-curl' || k.includes('biceps'))) return bicepsCurlEngine;
-  if (keys.some(k => k.includes('knee') || k.includes('diz')))     return kneeRaiseEngine;
+  if (keys.some(k => k === 'biceps-curl' || k.includes('biceps')))     return bicepsCurlEngine;
+  if (keys.some(k => k.includes('knee') || k.includes('diz')))         return kneeRaiseEngine;
+  if (keys.some(k => k.includes('shoulder') || k.includes('abduction') || k.includes('omuz')))
+    return shoulderAbductionEngine;
   return null;
 }
 

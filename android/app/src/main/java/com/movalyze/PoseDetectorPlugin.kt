@@ -13,11 +13,15 @@ import com.mrousavy.camera.frameprocessors.Frame
 import com.mrousavy.camera.frameprocessors.FrameProcessorPlugin
 import com.mrousavy.camera.frameprocessors.VisionCameraProxy
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 class PoseDetectorPlugin(proxy: VisionCameraProxy) : FrameProcessorPlugin() {
 
     companion object {
         private const val TAG = "PoseDetectorPlugin"
+        // Dedicated tag for benchmark output — filter logcat with: adb logcat -s PoseBenchmark
+        private const val BENCH_TAG = "PoseBenchmark"
+        private const val WINDOW_MS = 2000L   // aggregate + log stats every 2 seconds
         const val MODEL_NAME = "pose_landmarker_full.task"
         const val EVENT_NAME = "PoseLandmarks"
     }
@@ -28,6 +32,19 @@ class PoseDetectorPlugin(proxy: VisionCameraProxy) : FrameProcessorPlugin() {
     // Prevents expensive toBitmap() on frames that arrive while inference is running.
     // compareAndSet(false, true) is atomic — safe across camera and MediaPipe threads.
     private val isProcessing = AtomicBoolean(false)
+
+    // ── Benchmark instrumentation ────────────────────────────────────────────
+    // droppedFrames is updated from the camera thread; everything else is only
+    // touched inside the (single-threaded) MediaPipe result callback.
+    private val droppedFrames     = AtomicInteger(0)
+    private var winStartMs        = 0L
+    private var winProcessed      = 0
+    private var winDroppedAtStart = 0
+    private var winInfSumMs       = 0.0
+    private var winInfMinMs       = Double.MAX_VALUE
+    private var winInfMaxMs       = 0.0
+    private var totalProcessed    = 0L
+    private var totalInfSumMs     = 0.0
 
     init {
         initializeLandmarker()
@@ -47,7 +64,10 @@ class PoseDetectorPlugin(proxy: VisionCameraProxy) : FrameProcessorPlugin() {
                 .setMinPosePresenceConfidence(0.5f)
                 .setMinTrackingConfidence(0.5f)
                 .setResultListener { result, _ ->
+                    // Inference latency = now - the timestamp we passed into detectAsync().
+                    val inferenceMs = SystemClock.elapsedRealtime() - result.timestampMs()
                     isProcessing.set(false)
+                    recordBenchmark(inferenceMs.toDouble())
                     emitLandmarks(result)
                 }
                 .setErrorListener { error ->

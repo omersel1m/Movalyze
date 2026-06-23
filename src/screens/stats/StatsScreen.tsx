@@ -21,7 +21,17 @@ import {
   formatDayChip, formatDayFull, formatWeekChip, formatWeekFull,
   dayRangeISO, weekRangeISO, isSameDay, isSameWeek,
 } from '../../utils/dateUtils';
-import { ERROR_CODE_LABELS } from '../../features/workout/logic/constants/bicepsErrorCodes';
+import { ERROR_CODE_LABELS as BICEPS_LABELS } from '../../features/workout/logic/constants/bicepsErrorCodes';
+import { ERROR_CODE_LABELS as KNEE_LABELS } from '../../features/workout/logic/constants/kneeRaiseErrorCodes';
+import { ERROR_CODE_LABELS as SHOULDER_LABELS } from '../../features/workout/logic/constants/shoulderAbductionErrorCodes';
+
+// All error-code → Turkish label maps merged, so the breakdown reads correctly
+// for every category's errors.
+const ERROR_CODE_LABELS: Record<string, string> = {
+  ...BICEPS_LABELS,
+  ...KNEE_LABELS,
+  ...SHOULDER_LABELS,
+};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -35,6 +45,27 @@ const RECENT_DAYS  = getRecentDays(30);   // last 30 days
 const RECENT_WEEKS = getRecentWeeks(12);  // last 12 calendar weeks
 
 const ACCENT = '#268479';
+
+// Per-category theme color. When no category is selected, the page falls back
+// to the fitness accent.
+const CATEGORY_COLORS: Record<string, string> = {
+  fitness: '#268479',
+  therapy: '#AEBC2E',
+  pilates: '#CB8510',
+};
+
+// Donut / legend palette harmonious with each category color — distinct shades
+// of the same hue so every error type is its own colour but stays on-theme.
+const CATEGORY_PALETTES: Record<string, string[]> = {
+  fitness: ['#268479', '#3FA796', '#5DB8AE', '#86CEC6', '#B6E2DC'],
+  therapy: ['#9AAA1E', '#AEBC2E', '#BFCB4F', '#CFD877', '#DEE59E'],
+  pilates: ['#CB8510', '#D99B33', '#E5B25C', '#EFC987', '#F6DDB4'],
+};
+
+// 10% opacity tint of a hex color for soft backgrounds.
+function tint(hex: string): string {
+  return hex + '1A';
+}
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 
@@ -55,10 +86,19 @@ function Skeleton({ width, height, style }: { width: number | string; height: nu
 
 // ── Donut Placeholder ─────────────────────────────────────────────────────────
 
-function DonutPlaceholder() {
+function DonutPlaceholder({ colors }: { colors: string[] }) {
   return (
     <View style={donutStyles.root}>
-      <View style={donutStyles.outerRing}>
+      <View
+        style={[
+          donutStyles.outerRing,
+          {
+            borderColor:       colors[0],
+            borderTopColor:    colors[1] ?? colors[0],
+            borderRightColor:  colors[2] ?? colors[0],
+            borderBottomColor: colors[3] ?? colors[0],
+          },
+        ]}>
         <View style={donutStyles.innerHole} />
       </View>
     </View>
@@ -69,8 +109,6 @@ const donutStyles = StyleSheet.create({
   outerRing: {
     width: 100, height: 100, borderRadius: 50,
     borderWidth: 22,
-    borderColor: ACCENT,
-    borderTopColor: '#5DB8AE', borderRightColor: '#AEBC2E', borderBottomColor: '#C5E8E5',
     alignItems: 'center', justifyContent: 'center',
   },
   innerHole: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#FFFFFF' },
@@ -150,6 +188,10 @@ export default function StatsScreen() {
     ? formatDayFull(selectedDate)
     : formatWeekFull(selectedWeek);
 
+  // Page theme follows the selected category (defaults to fitness accent).
+  const theme   = selectedCategory ? (CATEGORY_COLORS[selectedCategory] ?? ACCENT) : ACCENT;
+  const palette = CATEGORY_PALETTES[selectedCategory ?? 'fitness'] ?? CATEGORY_PALETTES.fitness;
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -161,10 +203,10 @@ export default function StatsScreen() {
           <Text style={styles.pageTitle}>İstatistik</Text>
           {/* Period label + picker button */}
           <TouchableOpacity
-            style={styles.periodBtn}
+            style={[styles.periodBtn, { backgroundColor: tint(theme) }]}
             onPress={() => activeTab === 'Daily' ? setShowDateModal(true) : setShowWeekModal(true)}>
-            <Calendar size={14} color={ACCENT} strokeWidth={2} />
-            <Text style={styles.periodBtnText} numberOfLines={1}>
+            <Calendar size={14} color={theme} strokeWidth={2} />
+            <Text style={[styles.periodBtnText, { color: theme }]} numberOfLines={1}>
               {activeTab === 'Daily'
                 ? formatDayChip(selectedDate) + ' ' + selectedDate.getFullYear()
                 : formatWeekChip(selectedWeek)}
@@ -176,10 +218,10 @@ export default function StatsScreen() {
         <View style={styles.tabs}>
           {(['Daily', 'Weekly'] as const).map(tab => (
             <TouchableOpacity key={tab} onPress={() => setActiveTab(tab)} style={styles.tabBtn}>
-              <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
+              <Text style={[styles.tabText, activeTab === tab && { color: theme }]}>
                 {tab === 'Daily' ? 'Günlük' : 'Haftalık'}
               </Text>
-              {activeTab === tab && <View style={styles.tabUnderline} />}
+              {activeTab === tab && <View style={[styles.tabUnderline, { backgroundColor: theme }]} />}
             </TouchableOpacity>
           ))}
         </View>
@@ -187,13 +229,14 @@ export default function StatsScreen() {
         {/* Category Filter pills */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
           {CATEGORIES.map(cat => {
-            const active = selectedCategory === cat.slug;
+            const active   = selectedCategory === cat.slug;
+            const catColor = CATEGORY_COLORS[cat.slug] ?? ACCENT;
             return (
               <TouchableOpacity
                 key={cat.slug}
-                style={[styles.pill, active && styles.pillActive]}
+                style={[styles.pill, { borderColor: catColor }, active && { backgroundColor: catColor }]}
                 onPress={() => setSelectedCategory(active ? null : cat.slug)}>
-                <Text style={[styles.pillText, active && styles.pillTextActive]}>
+                <Text style={[styles.pillText, { color: active ? '#FFFFFF' : catColor }]}>
                   {cat.label}
                 </Text>
               </TouchableOpacity>
@@ -218,7 +261,7 @@ export default function StatsScreen() {
             <View style={styles.commonRow}>
               {mostCommon.slice(0, 3).map(item => (
                 <View key={item.slug} style={styles.commonBox}>
-                  <Text style={styles.commonReps}>{item.totalReps}</Text>
+                  <Text style={[styles.commonReps, { color: theme }]}>{item.totalReps}</Text>
                   <Text style={styles.commonRepsLabel}>tekrar</Text>
                   <Text style={styles.commonName}>{item.name}</Text>
                 </View>
@@ -274,21 +317,20 @@ export default function StatsScreen() {
             <Skeleton width="100%" height={80} />
           ) : !periodStats?.hasData || errorBreakdown.length === 0 ? (
             <View style={styles.donutRow}>
-              <DonutPlaceholder />
+              <DonutPlaceholder colors={palette} />
               <Text style={[styles.emptyText, { marginLeft: 16 }]}>
                 {periodStats?.hasData ? 'Hata kaydı yok.' : 'Henüz istatistik yok.'}
               </Text>
             </View>
           ) : (
             <View style={styles.donutRow}>
-              <DonutPlaceholder />
+              <DonutPlaceholder colors={palette} />
               <View style={styles.legendCol}>
                 {errorBreakdown.slice(0, 4).map((e, i) => {
-                  const colors = [ACCENT, '#5DB8AE', '#AEBC2E', '#F97316'];
                   const label = (ERROR_CODE_LABELS as Record<string, string>)[e.errorCode] ?? e.errorCode;
                   return (
                     <View key={e.errorCode} style={styles.legendItem}>
-                      <View style={[styles.legendDot, { backgroundColor: colors[i % colors.length] }]} />
+                      <View style={[styles.legendDot, { backgroundColor: palette[i % palette.length] }]} />
                       <Text style={styles.legendText}>{label}</Text>
                       <Text style={styles.legendCount}>{e.totalCount}</Text>
                     </View>
@@ -356,6 +398,7 @@ export default function StatsScreen() {
             selected={selectedDate}
             onSelect={setSelectedDate}
             onOpenModal={() => setShowDateModal(true)}
+            theme={theme}
           />
         ) : (
           <WeekSelector
@@ -363,6 +406,7 @@ export default function StatsScreen() {
             selected={selectedWeek}
             onSelect={setSelectedWeek}
             onOpenModal={() => setShowWeekModal(true)}
+            theme={theme}
           />
         )}
       </View>
@@ -381,13 +425,13 @@ export default function StatsScreen() {
                 const isToday    = isSameDay(item, today);
                 return (
                   <TouchableOpacity
-                    style={[styles.modalRow, isSelected && styles.modalRowSelected]}
+                    style={[styles.modalRow, isSelected && { backgroundColor: tint(theme) }]}
                     onPress={() => { setSelectedDate(item); setShowDateModal(false); }}>
-                    <Text style={[styles.modalRowText, isSelected && styles.modalRowTextSelected]}>
+                    <Text style={[styles.modalRowText, isSelected && { color: theme, fontWeight: '700' }]}>
                       {formatDayFull(item)}
                       {isToday ? ' (Bugün)' : ''}
                     </Text>
-                    {isSelected && <Text style={styles.modalCheck}>✓</Text>}
+                    {isSelected && <Text style={[styles.modalCheck, { color: theme }]}>✓</Text>}
                   </TouchableOpacity>
                 );
               }}
@@ -410,13 +454,13 @@ export default function StatsScreen() {
                 const isThis     = isSameWeek(item, thisWeek);
                 return (
                   <TouchableOpacity
-                    style={[styles.modalRow, isSelected && styles.modalRowSelected]}
+                    style={[styles.modalRow, isSelected && { backgroundColor: tint(theme) }]}
                     onPress={() => { setSelectedWeek(item); setShowWeekModal(false); }}>
-                    <Text style={[styles.modalRowText, isSelected && styles.modalRowTextSelected]}>
+                    <Text style={[styles.modalRowText, isSelected && { color: theme, fontWeight: '700' }]}>
                       {formatWeekFull(item)}
                       {isThis ? ' (Bu Hafta)' : ''}
                     </Text>
-                    {isSelected && <Text style={styles.modalCheck}>✓</Text>}
+                    {isSelected && <Text style={[styles.modalCheck, { color: theme }]}>✓</Text>}
                   </TouchableOpacity>
                 );
               }}
@@ -435,9 +479,10 @@ interface DaySelectorProps {
   selected: Date;
   onSelect: (d: Date) => void;
   onOpenModal: () => void;
+  theme: string;
 }
 
-function DaySelector({ days, selected, onSelect, onOpenModal }: DaySelectorProps) {
+function DaySelector({ days, selected, onSelect, onOpenModal, theme }: DaySelectorProps) {
   const scrollRef = useRef<ScrollView>(null);
   const today = days[0];
 
@@ -447,9 +492,9 @@ function DaySelector({ days, selected, onSelect, onOpenModal }: DaySelectorProps
         <Text style={styles.selectorHeaderLabel}>
           {isSameDay(selected, today) ? 'Bugün' : formatDayFull(selected)}
         </Text>
-        <TouchableOpacity onPress={onOpenModal} style={styles.selectorPickerBtn}>
-          <Calendar size={14} color={ACCENT} strokeWidth={2} />
-          <Text style={styles.selectorPickerText}>Tarih Seç</Text>
+        <TouchableOpacity onPress={onOpenModal} style={[styles.selectorPickerBtn, { backgroundColor: tint(theme) }]}>
+          <Calendar size={14} color={theme} strokeWidth={2} />
+          <Text style={[styles.selectorPickerText, { color: theme }]}>Tarih Seç</Text>
         </TouchableOpacity>
       </View>
       <ScrollView
@@ -463,7 +508,7 @@ function DaySelector({ days, selected, onSelect, onOpenModal }: DaySelectorProps
           return (
             <TouchableOpacity
               key={day.toISOString()}
-              style={[styles.dayChip, isSelected && styles.dayChipSelected]}
+              style={[styles.dayChip, isSelected && { backgroundColor: theme }]}
               onPress={() => onSelect(day)}>
               <Text style={[styles.dayChipNum, isSelected && styles.dayChipTextSelected]}>
                 {day.getDate()}
@@ -487,9 +532,10 @@ interface WeekSelectorProps {
   selected: Date;
   onSelect: (w: Date) => void;
   onOpenModal: () => void;
+  theme: string;
 }
 
-function WeekSelector({ weeks, selected, onSelect, onOpenModal }: WeekSelectorProps) {
+function WeekSelector({ weeks, selected, onSelect, onOpenModal, theme }: WeekSelectorProps) {
   const thisWeek = weeks[0];
   return (
     <View style={styles.selectorInner}>
@@ -497,9 +543,9 @@ function WeekSelector({ weeks, selected, onSelect, onOpenModal }: WeekSelectorPr
         <Text style={styles.selectorHeaderLabel}>
           {isSameWeek(selected, thisWeek) ? 'Bu Hafta' : formatWeekChip(selected)}
         </Text>
-        <TouchableOpacity onPress={onOpenModal} style={styles.selectorPickerBtn}>
-          <Calendar size={14} color={ACCENT} strokeWidth={2} />
-          <Text style={styles.selectorPickerText}>Hafta Seç</Text>
+        <TouchableOpacity onPress={onOpenModal} style={[styles.selectorPickerBtn, { backgroundColor: tint(theme) }]}>
+          <Calendar size={14} color={theme} strokeWidth={2} />
+          <Text style={[styles.selectorPickerText, { color: theme }]}>Hafta Seç</Text>
         </TouchableOpacity>
       </View>
       <ScrollView
@@ -511,7 +557,7 @@ function WeekSelector({ weeks, selected, onSelect, onOpenModal }: WeekSelectorPr
           return (
             <TouchableOpacity
               key={week.toISOString()}
-              style={[styles.dayChip, styles.weekChip, isSelected && styles.dayChipSelected]}
+              style={[styles.dayChip, styles.weekChip, isSelected && { backgroundColor: theme }]}
               onPress={() => onSelect(week)}>
               <Text style={[styles.dayChipNum, styles.weekChipText, isSelected && styles.dayChipTextSelected]}>
                 {formatWeekChip(week)}

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -7,11 +7,20 @@ import {
   StyleSheet,
   Animated,
   Easing,
+  Image,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { User, Pencil } from 'lucide-react-native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../../config/supabaseClient';
 import { authService } from '../../services/auth.service';
+import { profileService } from '../../services/profile.service';
+import { ProfileStackParamList } from '../../navigation/ProfileNavigator';
 import { Profile } from '../../database/models/types';
+
+type Nav = NativeStackNavigationProp<ProfileStackParamList, 'ProfileHome'>;
 
 // ── Skeleton ──────────────────────────────────────────────────────
 function SkeletonBox({ width, height, borderRadius = 8, style }: {
@@ -45,25 +54,44 @@ const genderLabel: Record<string, string> = {
 
 // ── Component ─────────────────────────────────────────────────────
 export default function ProfileScreen() {
+  const navigation = useNavigation<Nav>();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
-  useEffect(() => {
-    async function fetchProfile() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+  const fetchProfile = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
 
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single();
 
-      if (!error && data) setProfile(data as Profile);
-      setLoadingProfile(false);
-    }
-    fetchProfile();
+    if (!error && data) setProfile(data as Profile);
+    setLoadingProfile(false);
   }, []);
+
+  // Düzenleme ekranından dönüldüğünde profili tazele.
+  useFocusEffect(
+    useCallback(() => {
+      fetchProfile();
+    }, [fetchProfile]),
+  );
+
+  const handleChangeAvatar = async () => {
+    if (uploadingAvatar) return;
+    setUploadingAvatar(true);
+    try {
+      const newUrl = await profileService.pickAndUploadAvatar();
+      if (newUrl) setProfile(p => (p ? { ...p, avatar_url: newUrl } : p));
+    } catch (e: unknown) {
+      Alert.alert('Hata', e instanceof Error ? e.message : 'Resim yüklenemedi.');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
 
   const handleLogout = async () => {
     await authService.logout();
@@ -76,14 +104,26 @@ export default function ProfileScreen() {
 
       {/* Avatar + User Info */}
       <View style={styles.avatarSection}>
-        <View style={styles.avatarWrapper}>
-          <View style={styles.avatarPlaceholder}>
-            <User size={44} color="#263C84" strokeWidth={1.5} />
-          </View>
+        <TouchableOpacity
+          style={styles.avatarWrapper}
+          onPress={handleChangeAvatar}
+          activeOpacity={0.8}
+          disabled={uploadingAvatar}
+        >
+          {profile?.avatar_url ? (
+            <Image source={{ uri: profile.avatar_url }} style={styles.avatarImage} />
+          ) : (
+            <View style={styles.avatarPlaceholder}>
+              <User size={44} color="#263C84" strokeWidth={1.5} />
+            </View>
+          )}
           <View style={styles.editBadge}>
-            <Pencil size={13} color="#FFFFFF" strokeWidth={2} />
+            {uploadingAvatar
+              ? <ActivityIndicator size="small" color="#FFFFFF" />
+              : <Pencil size={13} color="#FFFFFF" strokeWidth={2} />
+            }
           </View>
-        </View>
+        </TouchableOpacity>
 
         {loadingProfile ? (
           <View style={styles.skeletonCenter}>
@@ -144,7 +184,10 @@ export default function ProfileScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Settings</Text>
 
-        <TouchableOpacity style={styles.settingRow}>
+        <TouchableOpacity
+          style={styles.settingRow}
+          onPress={() => navigation.navigate('EditProfile')}
+        >
           <Text style={styles.settingText}>Edit Profile Info</Text>
           <Text style={styles.settingChevron}>›</Text>
         </TouchableOpacity>
@@ -179,6 +222,7 @@ const styles = StyleSheet.create({
   // Avatar
   avatarSection: { alignItems: 'center', paddingBottom: 24 },
   avatarWrapper: { position: 'relative', marginBottom: 12 },
+  avatarImage: { width: 96, height: 96, borderRadius: 48, backgroundColor: '#DDE3F5' },
   avatarPlaceholder: {
     width: 96,
     height: 96,
