@@ -5,7 +5,7 @@ import { Utensils, Dumbbell, BarChart2, User } from 'lucide-react-native';
 import NutritionNavigator from './NutritionNavigator';
 import WorkoutNavigator from './WorkoutNavigator';
 import StatsScreen from '../screens/stats/StatsScreen';
-import ProfileNavigator from './ProfileNavigator';
+import ProfileScreen from '../screens/profile/ProfileScreen';
 
 export type TabParamList = {
   Nutrition: undefined;
@@ -38,7 +38,7 @@ export default function TabNavigator() {
       <Tab.Screen name="Nutrition" component={NutritionNavigator} options={{ title: 'Beslenme' }} />
       <Tab.Screen name="Workout" component={WorkoutNavigator} options={{ title: 'Antrenman' }} />
       <Tab.Screen name="Stats" component={StatsScreen} options={{ title: 'İstatistik' }} />
-      <Tab.Screen name="Profile" component={ProfileNavigator} options={{ title: 'Profil' }} />
+      <Tab.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profil' }} />
     </Tab.Navigator>
   );
 }
