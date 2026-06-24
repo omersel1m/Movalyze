@@ -78,9 +78,54 @@ class PoseDetectorPlugin(proxy: VisionCameraProxy) : FrameProcessorPlugin() {
 
             poseLandmarker = PoseLandmarker.createFromOptions(context, options)
             Log.i(TAG, "PoseLandmarker initialized: $MODEL_NAME (LIVE_STREAM)")
+            // Static config line for the report: model + delegate (default = CPU, no GPU set).
+            Log.i(BENCH_TAG, "config model=$MODEL_NAME runningMode=LIVE_STREAM delegate=CPU numPoses=1 " +
+                "minDetConf=0.5 minPresenceConf=0.5 minTrackConf=0.5")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize PoseLandmarker: ${e.message}", e)
         }
+    }
+
+    // Aggregates inference latency + throughput over a fixed time window and logs
+    // one summary line per window. Called only from the MediaPipe result callback.
+    private fun recordBenchmark(inferenceMs: Double) {
+        val now = SystemClock.elapsedRealtime()
+        if (winStartMs == 0L) {
+            winStartMs = now
+            winDroppedAtStart = droppedFrames.get()
+        }
+
+        winProcessed++
+        winInfSumMs += inferenceMs
+        if (inferenceMs < winInfMinMs) winInfMinMs = inferenceMs
+        if (inferenceMs > winInfMaxMs) winInfMaxMs = inferenceMs
+        totalProcessed++
+        totalInfSumMs += inferenceMs
+
+        val elapsed = now - winStartMs
+        if (elapsed < WINDOW_MS) return
+
+        val droppedInWin = droppedFrames.get() - winDroppedAtStart
+        val totalFrames  = winProcessed + droppedInWin
+        val processedFps = winProcessed * 1000.0 / elapsed
+        val cameraFps    = totalFrames * 1000.0 / elapsed
+        val avgInf       = winInfSumMs / winProcessed
+        val dropRate     = if (totalFrames > 0) droppedInWin * 100.0 / totalFrames else 0.0
+        val avgInfTotal  = totalInfSumMs / totalProcessed
+
+        Log.i(BENCH_TAG, String.format(
+            "processedFPS=%.1f cameraFPS=%.1f avgInferenceMs=%.1f minMs=%.1f maxMs=%.1f " +
+                "processed=%d dropped=%d dropRate=%.1f%% | cumulative: frames=%d avgInferenceMs=%.1f",
+            processedFps, cameraFps, avgInf, winInfMinMs, winInfMaxMs,
+            winProcessed, droppedInWin, dropRate, totalProcessed, avgInfTotal))
+
+        // Reset window.
+        winStartMs        = now
+        winDroppedAtStart = droppedFrames.get()
+        winProcessed      = 0
+        winInfSumMs       = 0.0
+        winInfMinMs       = Double.MAX_VALUE
+        winInfMaxMs       = 0.0
     }
 
     private fun emitLandmarks(result: com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarkerResult) {
@@ -104,7 +149,11 @@ class PoseDetectorPlugin(proxy: VisionCameraProxy) : FrameProcessorPlugin() {
 
     override fun callback(frame: Frame, params: Map<String, Any>?): Any? {
         // Skip this frame entirely if inference is already running — avoids toBitmap() cost.
-        if (!isProcessing.compareAndSet(false, true)) return null
+        // Each skip is a dropped frame; counted for the drop-rate benchmark.
+        if (!isProcessing.compareAndSet(false, true)) {
+            droppedFrames.incrementAndGet()
+            return null
+        }
 
         val landmarker = poseLandmarker ?: run {
             isProcessing.set(false)
