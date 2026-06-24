@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -7,11 +7,20 @@ import {
   StyleSheet,
   Animated,
   Easing,
+  Image,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { User, Pencil } from 'lucide-react-native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../../config/supabaseClient';
 import { authService } from '../../services/auth.service';
+import { profileService } from '../../services/profile.service';
+import { ProfileStackParamList } from '../../navigation/ProfileNavigator';
 import { Profile } from '../../database/models/types';
+
+type Nav = NativeStackNavigationProp<ProfileStackParamList, 'ProfileHome'>;
 
 // ── Skeleton ──────────────────────────────────────────────────────
 function SkeletonBox({ width, height, borderRadius = 8, style }: {
@@ -45,25 +54,44 @@ const genderLabel: Record<string, string> = {
 
 // ── Component ─────────────────────────────────────────────────────
 export default function ProfileScreen() {
+  const navigation = useNavigation<Nav>();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
-  useEffect(() => {
-    async function fetchProfile() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+  const fetchProfile = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
 
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single();
 
-      if (!error && data) setProfile(data as Profile);
-      setLoadingProfile(false);
-    }
-    fetchProfile();
+    if (!error && data) setProfile(data as Profile);
+    setLoadingProfile(false);
   }, []);
+
+  // Düzenleme ekranından dönüldüğünde profili tazele.
+  useFocusEffect(
+    useCallback(() => {
+      fetchProfile();
+    }, [fetchProfile]),
+  );
+
+  const handleChangeAvatar = async () => {
+    if (uploadingAvatar) return;
+    setUploadingAvatar(true);
+    try {
+      const newUrl = await profileService.pickAndUploadAvatar();
+      if (newUrl) setProfile(p => (p ? { ...p, avatar_url: newUrl } : p));
+    } catch (e: unknown) {
+      Alert.alert('Hata', e instanceof Error ? e.message : 'Resim yüklenemedi.');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
 
   const handleLogout = async () => {
     await authService.logout();
@@ -72,18 +100,30 @@ export default function ProfileScreen() {
   return (
     <ScrollView style={styles.root} showsVerticalScrollIndicator={false}>
       {/* Header */}
-      <Text style={styles.pageTitle}>Profile</Text>
+      <Text style={styles.pageTitle}>Profil</Text>
 
       {/* Avatar + User Info */}
       <View style={styles.avatarSection}>
-        <View style={styles.avatarWrapper}>
-          <View style={styles.avatarPlaceholder}>
-            <User size={44} color="#263C84" strokeWidth={1.5} />
-          </View>
+        <TouchableOpacity
+          style={styles.avatarWrapper}
+          onPress={handleChangeAvatar}
+          activeOpacity={0.8}
+          disabled={uploadingAvatar}
+        >
+          {profile?.avatar_url ? (
+            <Image source={{ uri: profile.avatar_url }} style={styles.avatarImage} />
+          ) : (
+            <View style={styles.avatarPlaceholder}>
+              <User size={44} color="#263C84" strokeWidth={1.5} />
+            </View>
+          )}
           <View style={styles.editBadge}>
-            <Pencil size={13} color="#FFFFFF" strokeWidth={2} />
+            {uploadingAvatar
+              ? <ActivityIndicator size="small" color="#FFFFFF" />
+              : <Pencil size={13} color="#FFFFFF" strokeWidth={2} />
+            }
           </View>
-        </View>
+        </TouchableOpacity>
 
         {loadingProfile ? (
           <View style={styles.skeletonCenter}>
@@ -106,9 +146,9 @@ export default function ProfileScreen() {
 
       {/* Weekly Goal — MOCK */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Weekly Goal</Text>
+        <Text style={styles.sectionTitle}>Haftalık Hedef</Text>
         <View style={[styles.card, styles.disabled]}>
-          <Text style={styles.cardLabel}>Exercise</Text>
+          <Text style={styles.cardLabel}>Egzersiz</Text>
           <View style={styles.progressBg}>
             <View style={[styles.progressFill, { width: '60%' }]} />
           </View>
@@ -117,40 +157,40 @@ export default function ProfileScreen() {
 
       {/* Most Frequent Mistake — MOCK */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Most Frequent Mistake</Text>
+        <Text style={styles.sectionTitle}>En Sık Yapılan Hata</Text>
         <View style={[styles.card, styles.disabled]}>
-          <Text style={styles.mistakeTitle}>Incorrect Form</Text>
+          <Text style={styles.mistakeTitle}>Hatalı Form</Text>
           <Text style={styles.mistakeDesc}>
-            Your posture is off during squats. Try to keep your back straight.
+            Squat sırasında duruşun bozuk. Sırtını dik tutmaya çalış.
           </Text>
         </View>
       </View>
 
       {/* AI Assistant — MOCK */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>AI Assistant</Text>
+        <Text style={styles.sectionTitle}>Yapay Zeka Asistanı</Text>
         <View style={[styles.card, styles.disabled]}>
-          <Text style={styles.cardLabel}>Get Suggestions</Text>
-          <Text style={styles.cardSubLabel}>Personalized tips for your fitness journey</Text>
+          <Text style={styles.cardLabel}>Öneri Al</Text>
+          <Text style={styles.cardSubLabel}>Fitness yolculuğun için kişiselleştirilmiş ipuçları</Text>
         </View>
       </View>
 
       {/* Create Training Plan — MOCK */}
       <TouchableOpacity style={[styles.primaryBtn, styles.disabled]} disabled>
-        <Text style={styles.primaryBtnText}>Create Training Plan</Text>
+        <Text style={styles.primaryBtnText}>Antrenman Planı Oluştur</Text>
       </TouchableOpacity>
 
       {/* Settings */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Settings</Text>
+        <Text style={styles.sectionTitle}>Ayarlar</Text>
 
-        <TouchableOpacity style={styles.settingRow}>
-          <Text style={styles.settingText}>Edit Profile Info</Text>
+        <TouchableOpacity style={styles.settingRow} onPress={() => navigation.navigate('EditProfile')}>
+          <Text style={styles.settingText}>Profil Bilgilerini Düzenle</Text>
           <Text style={styles.settingChevron}>›</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={[styles.settingRow, styles.disabled]} disabled>
-          <Text style={styles.settingText}>Voice Notifications</Text>
+          <Text style={styles.settingText}>Sesli Bildirimler</Text>
           <View style={styles.switchOff} />
         </TouchableOpacity>
 
@@ -179,6 +219,7 @@ const styles = StyleSheet.create({
   // Avatar
   avatarSection: { alignItems: 'center', paddingBottom: 24 },
   avatarWrapper: { position: 'relative', marginBottom: 12 },
+  avatarImage: { width: 96, height: 96, borderRadius: 48, backgroundColor: '#DDE3F5' },
   avatarPlaceholder: {
     width: 96,
     height: 96,

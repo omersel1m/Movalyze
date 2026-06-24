@@ -55,7 +55,7 @@ export default function RegisterScreen({ navigation }: Props) {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.brand}>Movalyze</Text>
-        <Text style={styles.tagline}>SMARTER WAY TO TRACK YOUR FITNESS</Text>
+        <Text style={styles.tagline}>FİTNESS TAKİBİNİN AKILLI YOLU</Text>
       </View>
 
       {/* Card */}
@@ -67,19 +67,19 @@ export default function RegisterScreen({ navigation }: Props) {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}>
 
-          <Text style={styles.cardTitle}>Create Account</Text>
-          <Text style={styles.cardSubtitle}>Join the pulse of better health today.</Text>
+          <Text style={styles.cardTitle}>Hesap Oluştur</Text>
+          <Text style={styles.cardSubtitle}>Bugün daha sağlıklı bir yaşamın nabzını tut.</Text>
 
           {/* Full Name */}
           <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>FULL NAME</Text>
+            <Text style={styles.inputLabel}>AD SOYAD</Text>
             <View style={styles.inputBox}>
               <View style={styles.inputIconWrap}>
                 <User size={18} color="#ADADAD" strokeWidth={1.75} />
               </View>
               <TextInput
                 style={styles.input}
-                placeholder="Full Name"
+                placeholder="Ad Soyad"
                 placeholderTextColor="#ADADAD"
                 value={fullName}
                 onChangeText={setFullName}
@@ -89,14 +89,14 @@ export default function RegisterScreen({ navigation }: Props) {
 
           {/* Email */}
           <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>EMAİL</Text>
+            <Text style={styles.inputLabel}>E-POSTA</Text>
             <View style={styles.inputBox}>
               <View style={styles.inputIconWrap}>
                 <Mail size={18} color="#ADADAD" strokeWidth={1.75} />
               </View>
               <TextInput
                 style={styles.input}
-                placeholder="E-mail"
+                placeholder="E-posta"
                 placeholderTextColor="#ADADAD"
                 keyboardType="email-address"
                 autoCapitalize="none"
@@ -136,33 +136,33 @@ export default function RegisterScreen({ navigation }: Props) {
             disabled={loading}>
             {loading
               ? <ActivityIndicator color="#FFF" />
-              : <Text style={styles.primaryBtnText}>Sign Up</Text>}
+              : <Text style={styles.primaryBtnText}>Kayıt Ol</Text>}
           </TouchableOpacity>
 
           {/* OR */}
           <View style={styles.orRow}>
             <View style={styles.orLine} />
-            <Text style={styles.orText}>OR</Text>
+            <Text style={styles.orText}>VEYA</Text>
             <View style={styles.orLine} />
           </View>
 
           {/* Google */}
           <TouchableOpacity style={[styles.socialBtn, styles.disabled]} disabled>
             <Text style={styles.socialIcon}>G</Text>
-            <Text style={styles.socialBtnText}>Continue with Google</Text>
+            <Text style={styles.socialBtnText}>Google ile devam et</Text>
           </TouchableOpacity>
 
           {/* Apple */}
           <TouchableOpacity style={[styles.socialBtn, styles.disabled]} disabled>
             <Text style={styles.socialIcon}></Text>
-            <Text style={styles.socialBtnText}>Continue with Apple</Text>
+            <Text style={styles.socialBtnText}>Apple ile devam et</Text>
           </TouchableOpacity>
 
           {/* Footer */}
           <View style={styles.footer}>
-            <Text style={styles.footerText}>Already have an account? </Text>
+            <Text style={styles.footerText}>Zaten hesabın var mı? </Text>
             <TouchableOpacity onPress={() => navigation.navigate('Login')}>
-              <Text style={styles.footerLink}>Login</Text>
+              <Text style={styles.footerLink}>Giriş Yap</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -177,7 +177,7 @@ const styles = StyleSheet.create({
   header: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 52,
+    paddingTop: 28,
     paddingBottom: 24,
   },
   brand: { fontSize: 36, fontWeight: '800', color: '#FFFFFF', letterSpacing: 1 },

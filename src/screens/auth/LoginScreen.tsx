@@ -53,7 +53,7 @@ export default function LoginScreen({ navigation }: Props) {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.brand}>Movalyze</Text>
-        <Text style={styles.tagline}>SMARTER WAY TO TRACK YOUR FITNESS</Text>
+        <Text style={styles.tagline}>FİTNESS TAKİBİNİN AKILLI YOLU</Text>
       </View>
 
       {/* Card */}
@@ -67,14 +67,14 @@ export default function LoginScreen({ navigation }: Props) {
 
           {/* Inputs */}
           <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>EMAİL</Text>
+            <Text style={styles.inputLabel}>E-POSTA</Text>
             <View style={styles.inputBox}>
               <View style={styles.inputIconWrap}>
                 <Mail size={18} color="#ADADAD" strokeWidth={1.75} />
               </View>
               <TextInput
                 style={styles.input}
-                placeholder="E-mail"
+                placeholder="E-posta"
                 placeholderTextColor="#ADADAD"
                 keyboardType="email-address"
                 autoCapitalize="none"
@@ -109,7 +109,7 @@ export default function LoginScreen({ navigation }: Props) {
           <TouchableOpacity
             style={styles.forgotBtn}
             onPress={() => console.log('Forgot password')}>
-            <Text style={styles.forgotText}>Forgot Password?</Text>
+            <Text style={styles.forgotText}>Şifremi Unuttum?</Text>
           </TouchableOpacity>
 
           {/* Login Button */}
@@ -119,33 +119,33 @@ export default function LoginScreen({ navigation }: Props) {
             disabled={loading}>
             {loading
               ? <ActivityIndicator color="#FFF" />
-              : <Text style={styles.primaryBtnText}>Login</Text>}
+              : <Text style={styles.primaryBtnText}>Giriş Yap</Text>}
           </TouchableOpacity>
 
           {/* OR */}
           <View style={styles.orRow}>
             <View style={styles.orLine} />
-            <Text style={styles.orText}>OR</Text>
+            <Text style={styles.orText}>VEYA</Text>
             <View style={styles.orLine} />
           </View>
 
           {/* Google */}
           <TouchableOpacity style={[styles.socialBtn, styles.disabled]} disabled>
             <Text style={styles.socialIcon}>G</Text>
-            <Text style={styles.socialBtnText}>Continue with Google</Text>
+            <Text style={styles.socialBtnText}>Google ile devam et</Text>
           </TouchableOpacity>
 
           {/* Apple */}
           <TouchableOpacity style={[styles.socialBtn, styles.disabled]} disabled>
             <Text style={styles.socialIcon}></Text>
-            <Text style={styles.socialBtnText}>Continue with Apple</Text>
+            <Text style={styles.socialBtnText}>Apple ile devam et</Text>
           </TouchableOpacity>
 
           {/* Footer */}
           <View style={styles.footer}>
-            <Text style={styles.footerText}>Don't have an account? </Text>
+            <Text style={styles.footerText}>Hesabın yok mu? </Text>
             <TouchableOpacity onPress={() => navigation.navigate('Register')}>
-              <Text style={styles.footerLink}>Sign Up</Text>
+              <Text style={styles.footerLink}>Kayıt Ol</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
