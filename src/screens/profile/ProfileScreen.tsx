@@ -172,7 +172,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#1A1A2E',
     textAlign: 'center',
-    paddingTop: 56,
+    paddingTop: 32,
     paddingBottom: 16,
   },
 

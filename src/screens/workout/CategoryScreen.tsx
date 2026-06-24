@@ -99,7 +99,7 @@ const styles = StyleSheet.create({
 
   header: {
     paddingHorizontal: 20,
-    paddingTop: 52,
+    paddingTop: 28,
     paddingBottom: 28,
   },
   headerLine: {
