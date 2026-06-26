@@ -14,7 +14,8 @@
       "Bash(npx tsc *)",
       "Bash(python -c \"import json,sys; p=json.load\\(sys.stdin\\); print\\('VisionCamera version:', p['version']\\); print\\('peerDeps:', list\\(p.get\\('peerDependencies',{}\\).keys\\(\\)\\)\\)\")",
       "Bash(npm info *)",
-      "Bash(xargs grep -n \"NAME\\\\|companion\")"
+      "Bash(xargs grep -n \"NAME\\\\|companion\")",
+      "PowerShell(winget install --id Genymobile.scrcpy -e --accept-source-agreements --accept-package-agreements)"
     ]
   }
 }

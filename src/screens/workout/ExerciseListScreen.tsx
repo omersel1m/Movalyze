@@ -8,12 +8,14 @@ import {
   Animated,
   Easing,
   Alert,
+  Image,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { WorkoutStackParamList } from '../../navigation/WorkoutNavigator';
 import { workoutService } from '../../services/workout.service';
 import { Exercise } from '../../database/models/types';
+import { EXERCISE_IMAGES } from '../../features/workout/data/exerciseImages';
 
 type Props = {
   navigation: NativeStackNavigationProp<WorkoutStackParamList, 'ExerciseList'>;
@@ -98,7 +100,15 @@ export default function ExerciseListScreen({ navigation, route }: Props) {
                   })
                 }
                 activeOpacity={0.8}>
-                <View style={[styles.exerciseImgPlaceholder, { borderColor: categoryColor }]} />
+                {EXERCISE_IMAGES[ex.slug] ? (
+                  <Image
+                    source={EXERCISE_IMAGES[ex.slug]}
+                    style={[styles.exerciseImg, { borderColor: categoryColor }]}
+                    resizeMode="contain"
+                  />
+                ) : (
+                  <View style={[styles.exerciseImgPlaceholder, { borderColor: categoryColor }]} />
+                )}
                 <View style={styles.exerciseInfo}>
                   <Text style={styles.exerciseName}>{ex.name}</Text>
                   <Text style={[styles.exerciseDifficulty, { color: categoryColor }]}>
@@ -151,6 +161,13 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1.5,
     backgroundColor: '#F0F0F0',
+  },
+  exerciseImg: {
+    width: 60,
+    height: 60,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    backgroundColor: '#FFFFFF',
   },
   exerciseInfo: { flex: 1, marginLeft: 14 },
   exerciseName: { fontSize: 15, fontWeight: '700', color: '#1A1A2E', marginBottom: 4 },

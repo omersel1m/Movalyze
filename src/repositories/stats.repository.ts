@@ -25,6 +25,14 @@ export interface ErrorRow {
   category_slug: string;
 }
 
+export interface ErrorDetailRow extends ErrorRow {
+  error_description: string | null;
+  exercise_id: string;
+  exercise_name: string;
+  exercise_slug: string;
+  detected_at: string;
+}
+
 // ── Repository ────────────────────────────────────────────────────────────────
 
 export const statsRepository = {
@@ -119,6 +127,37 @@ export const statsRepository = {
       occurrence_count: row.occurrence_count ?? 1,
       session_id:       row.session_id,
       category_slug:    row.workout_sessions.exercises.exercise_categories.slug,
+    }));
+  },
+
+  // All completed-session errors with exercise context, used by the profile
+  // summary to find the user's most frequent form issue across categories.
+  async getErrorDetails(userId: string): Promise<ErrorDetailRow[]> {
+    const { data, error } = await supabase
+      .from('session_errors')
+      .select(`
+        error_code, error_description, occurrence_count, session_id, detected_at,
+        workout_sessions!inner(
+          user_id, exercise_id, status,
+          exercises!inner(name, slug, exercise_categories!inner(slug))
+        )
+      `)
+      .eq('workout_sessions.user_id', userId)
+      .eq('workout_sessions.status', 'completed')
+      .order('detected_at', { ascending: false });
+
+    if (error || !data) return [];
+
+    return data.map((row: any) => ({
+      error_code:        row.error_code,
+      error_description: row.error_description,
+      occurrence_count:  row.occurrence_count ?? 1,
+      session_id:        row.session_id,
+      detected_at:       row.detected_at,
+      exercise_id:       row.workout_sessions.exercise_id,
+      exercise_name:     row.workout_sessions.exercises.name,
+      exercise_slug:     row.workout_sessions.exercises.slug,
+      category_slug:     row.workout_sessions.exercises.exercise_categories.slug,
     }));
   },
 };

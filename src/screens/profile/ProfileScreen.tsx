@@ -17,8 +17,13 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../../config/supabaseClient';
 import { authService } from '../../services/auth.service';
 import { profileService } from '../../services/profile.service';
+import { statsService } from '../../services/stats.service';
+import type { MostFrequentError } from '../../services/stats.service';
 import { ProfileStackParamList } from '../../navigation/ProfileNavigator';
 import { Profile } from '../../database/models/types';
+import { ERROR_CODE_LABELS as BICEPS_LABELS } from '../../features/workout/logic/constants/bicepsErrorCodes';
+import { ERROR_CODE_LABELS as KNEE_LABELS } from '../../features/workout/logic/constants/kneeRaiseErrorCodes';
+import { ERROR_CODE_LABELS as SHOULDER_LABELS } from '../../features/workout/logic/constants/shoulderAbductionErrorCodes';
 
 type Nav = NativeStackNavigationProp<ProfileStackParamList, 'ProfileHome'>;
 
@@ -52,25 +57,43 @@ const genderLabel: Record<string, string> = {
   prefer_not_to_say: 'Belirtilmemiş',
 };
 
+const ERROR_CODE_LABELS: Record<string, string> = {
+  ...BICEPS_LABELS,
+  ...KNEE_LABELS,
+  ...SHOULDER_LABELS,
+};
+
 // ── Component ─────────────────────────────────────────────────────
 export default function ProfileScreen() {
   const navigation = useNavigation<Nav>();
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [mostFrequentError, setMostFrequentError] = useState<MostFrequentError | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
+  const [loadingMistake, setLoadingMistake] = useState(true);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   const fetchProfile = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    setLoadingProfile(true);
+    setLoadingMistake(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
 
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single();
+      const [{ data, error }, frequentError] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single(),
+        statsService.getMostFrequentError(user.id),
+      ]);
 
-    if (!error && data) setProfile(data as Profile);
-    setLoadingProfile(false);
+      if (!error && data) setProfile(data as Profile);
+      setMostFrequentError(frequentError);
+    } finally {
+      setLoadingProfile(false);
+      setLoadingMistake(false);
+    }
   }, []);
 
   // Düzenleme ekranından dönüldüğünde profili tazele.
@@ -155,14 +178,35 @@ export default function ProfileScreen() {
         </View>
       </View>
 
-      {/* Most Frequent Mistake — MOCK */}
+      {/* Most Frequent Mistake */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>En Sık Yapılan Hata</Text>
-        <View style={[styles.card, styles.disabled]}>
-          <Text style={styles.mistakeTitle}>Hatalı Form</Text>
-          <Text style={styles.mistakeDesc}>
-            Squat sırasında duruşun bozuk. Sırtını dik tutmaya çalış.
-          </Text>
+        <View style={styles.card}>
+          {loadingMistake ? (
+            <View>
+              <SkeletonBox width="55%" height={16} borderRadius={6} style={{ marginBottom: 8 }} />
+              <SkeletonBox width="85%" height={14} borderRadius={6} />
+            </View>
+          ) : mostFrequentError ? (
+            <>
+              <Text style={styles.mistakeTitle}>
+                {ERROR_CODE_LABELS[mostFrequentError.errorCode] ?? mostFrequentError.errorCode}
+              </Text>
+              <Text style={styles.mistakeExercise}>
+                Egzersiz: {mostFrequentError.exerciseName}
+              </Text>
+              <Text style={styles.mistakeDesc}>
+                {mostFrequentError.feedback ?? 'Bu hata türü için geribildirim mesajı bulunamadı.'}
+              </Text>
+            </>
+          ) : (
+            <>
+              <Text style={styles.mistakeTitle}>Hata kaydı yok</Text>
+              <Text style={styles.mistakeDesc}>
+                Tamamlanan egzersizlerde henüz form hatası kaydedilmemiş.
+              </Text>
+            </>
+          )}
         </View>
       </View>
 
@@ -265,6 +309,7 @@ const styles = StyleSheet.create({
 
   // Mistake card
   mistakeTitle: { fontSize: 14, fontWeight: '700', color: '#1A1A2E', marginBottom: 4 },
+  mistakeExercise: { fontSize: 12, fontWeight: '600', color: '#263C84', marginBottom: 6 },
   mistakeDesc: { fontSize: 12, color: '#8A8A8A', lineHeight: 18 },
 
   // Primary button

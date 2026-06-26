@@ -12,6 +12,7 @@ import {
   Pressable,
 } from 'react-native';
 import { Calendar } from 'lucide-react-native';
+import Svg, { Circle, G } from 'react-native-svg';
 import { supabase } from '../../config/supabaseClient';
 import { statsService, AccuracyEntry, PeriodStats } from '../../services/stats.service';
 import { statsRepository } from '../../repositories/stats.repository';
@@ -84,34 +85,50 @@ function Skeleton({ width, height, style }: { width: number | string; height: nu
   );
 }
 
-// ── Donut Placeholder ─────────────────────────────────────────────────────────
+// ── Donut Chart ─────────────────────────────────────────────────────────────
+// Hata türü sayısına göre dinamik: N tür varsa daire N eşit dilime bölünür
+// (3 tür → her biri 120°, 4 tür → her biri 90°). Her dilim bir hata türünün
+// rengini taşır; karşılığı sağdaki açıklama (legend) listesinde gösterilir.
 
-function DonutPlaceholder({ colors }: { colors: string[] }) {
+const DONUT_SIZE   = 100;
+const DONUT_STROKE = 22;
+const EMPTY_RING   = '#E0E0E0';
+
+function DonutChart({ colors }: { colors: string[] }) {
+  // Veri yoksa nötr tek bir halka çiz.
+  const segColors = colors.length > 0 ? colors : [EMPTY_RING];
+  const segments  = segColors.length;
+
+  const radius        = (DONUT_SIZE - DONUT_STROKE) / 2;
+  const center        = DONUT_SIZE / 2;
+  const circumference = 2 * Math.PI * radius;
+  const segLen        = circumference / segments; // her dilim 360/N derece
+
   return (
     <View style={donutStyles.root}>
-      <View
-        style={[
-          donutStyles.outerRing,
-          {
-            borderColor:       colors[0],
-            borderTopColor:    colors[1] ?? colors[0],
-            borderRightColor:  colors[2] ?? colors[0],
-            borderBottomColor: colors[3] ?? colors[0],
-          },
-        ]}>
-        <View style={donutStyles.innerHole} />
-      </View>
+      <Svg width={DONUT_SIZE} height={DONUT_SIZE}>
+        {/* -90° döndürerek dilimleri tepeden (saat 12) başlat */}
+        <G rotation={-90} origin={`${center}, ${center}`}>
+          {segColors.map((color, i) => (
+            <Circle
+              key={i}
+              cx={center}
+              cy={center}
+              r={radius}
+              fill="none"
+              stroke={color}
+              strokeWidth={DONUT_STROKE}
+              strokeDasharray={`${segLen} ${circumference - segLen}`}
+              strokeDashoffset={-i * segLen}
+            />
+          ))}
+        </G>
+      </Svg>
     </View>
   );
 }
 const donutStyles = StyleSheet.create({
-  root: { width: 100, height: 100, alignItems: 'center', justifyContent: 'center' },
-  outerRing: {
-    width: 100, height: 100, borderRadius: 50,
-    borderWidth: 22,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  innerHole: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#FFFFFF' },
+  root: { width: DONUT_SIZE, height: DONUT_SIZE, alignItems: 'center', justifyContent: 'center' },
 });
 
 // ── Main Component ────────────────────────────────────────────────────────────
@@ -191,6 +208,11 @@ export default function StatsScreen() {
   // Page theme follows the selected category (defaults to fitness accent).
   const theme   = selectedCategory ? (CATEGORY_COLORS[selectedCategory] ?? ACCENT) : ACCENT;
   const palette = CATEGORY_PALETTES[selectedCategory ?? 'fitness'] ?? CATEGORY_PALETTES.fitness;
+
+  // Hata dağılımı: çember dilim sayısı = gösterilen hata türü sayısı.
+  // Her tür eşit açı kaplar (N tür → 360/N derece) ve legend'deki rengiyle eşleşir.
+  const shownErrors  = errorBreakdown.slice(0, palette.length);
+  const donutColors  = shownErrors.map((_, i) => palette[i % palette.length]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -315,22 +337,22 @@ export default function StatsScreen() {
           <Text style={styles.cardTitle}>Hata Dağılımı</Text>
           {loading ? (
             <Skeleton width="100%" height={80} />
-          ) : !periodStats?.hasData || errorBreakdown.length === 0 ? (
+          ) : !periodStats?.hasData || shownErrors.length === 0 ? (
             <View style={styles.donutRow}>
-              <DonutPlaceholder colors={palette} />
+              <DonutChart colors={[]} />
               <Text style={[styles.emptyText, { marginLeft: 16 }]}>
                 {periodStats?.hasData ? 'Hata kaydı yok.' : 'Henüz istatistik yok.'}
               </Text>
             </View>
           ) : (
             <View style={styles.donutRow}>
-              <DonutPlaceholder colors={palette} />
+              <DonutChart colors={donutColors} />
               <View style={styles.legendCol}>
-                {errorBreakdown.slice(0, 4).map((e, i) => {
+                {shownErrors.map((e, i) => {
                   const label = (ERROR_CODE_LABELS as Record<string, string>)[e.errorCode] ?? e.errorCode;
                   return (
                     <View key={e.errorCode} style={styles.legendItem}>
-                      <View style={[styles.legendDot, { backgroundColor: palette[i % palette.length] }]} />
+                      <View style={[styles.legendDot, { backgroundColor: donutColors[i] }]} />
                       <Text style={styles.legendText}>{label}</Text>
                       <Text style={styles.legendCount}>{e.totalCount}</Text>
                     </View>

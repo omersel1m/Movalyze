@@ -1,6 +1,6 @@
 import { statsRepository, SessionRow, ErrorRow } from '../repositories/stats.repository';
 import { DailyStats } from '../database/models/types';
-import { dayRangeISO, weekRangeISO, getWeekStart } from '../utils/dateUtils';
+import { dayRangeISO, weekRangeISO } from '../utils/dateUtils';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -29,6 +29,14 @@ export interface ErrorBucket {
   totalCount: number;
 }
 
+export interface MostFrequentError {
+  errorCode: string;
+  feedback: string | null;
+  exerciseName: string;
+  exerciseSlug: string;
+  totalCount: number;
+}
+
 export interface PeriodStats {
   mostCommon: CommonExercise[];
   formImprovement: FormImprovement;
@@ -47,6 +55,33 @@ export const statsService = {
   async getDailyStats(userId: string, date?: string): Promise<DailyStats | null> {
     const targetDate = date ?? statsService.todayDateString();
     return statsRepository.getDailyStatsForDate(userId, targetDate);
+  },
+
+  async getMostFrequentError(userId: string): Promise<MostFrequentError | null> {
+    const errors = await statsRepository.getErrorDetails(userId);
+    if (errors.length === 0) return null;
+
+    const grouped = new Map<string, MostFrequentError>();
+    for (const error of errors) {
+      const key = `${error.exercise_slug}:${error.error_code}`;
+      const existing = grouped.get(key);
+      if (existing) {
+        existing.totalCount += error.occurrence_count;
+        if (!existing.feedback && error.error_description) {
+          existing.feedback = error.error_description;
+        }
+      } else {
+        grouped.set(key, {
+          errorCode: error.error_code,
+          feedback: error.error_description,
+          exerciseName: error.exercise_name,
+          exerciseSlug: error.exercise_slug,
+          totalCount: error.occurrence_count,
+        });
+      }
+    }
+
+    return [...grouped.values()].sort((a, b) => b.totalCount - a.totalCount)[0] ?? null;
   },
 
   // ── Daily period stats ──────────────────────────────────────────
